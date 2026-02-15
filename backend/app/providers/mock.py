@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from .base import Provider
 
@@ -13,7 +13,7 @@ class MockProvider(Provider):
     name = "mock"
 
     async def generate(
-        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int
+        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int, api_key: Optional[str] = None
     ) -> Tuple[str, Dict[str, int], Dict[str, Any]]:
         prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
@@ -43,6 +43,5 @@ class MockProvider(Provider):
             "completion_tokens": max(1, len(content) // 4),
             "total_tokens": max(2, (len(prompt) + len(content)) // 4),
         }
-        meta: Dict[str, Any] = {"provider": self.name}
+        meta: Dict[str, Any] = {"provider": self.name, "api_key_present": bool(api_key)}
         return content, usage, meta
-

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 
 class Provider(ABC):
@@ -9,7 +9,11 @@ class Provider(ABC):
 
     @abstractmethod
     async def generate(
-        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        api_key: Optional[str] = None,
     ) -> Tuple[str, Dict[str, int], Dict[str, Any]]:
         """Generate text based on chat messages.
 
@@ -18,4 +22,3 @@ class Provider(ABC):
         meta: provider-specific metadata
         """
         raise NotImplementedError
-

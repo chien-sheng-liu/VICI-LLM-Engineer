@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from dotenv import load_dotenv
 
 from .config import GatewayConfig
 from .gateway import router as gateway_router
@@ -13,6 +14,8 @@ from .agent_runner import router as agent_router, RunStore
 
 
 def create_app() -> FastAPI:
+    # Load environment variables from .env if present
+    load_dotenv()
     configure_json_logging()
 
     cfg = GatewayConfig.from_env()
@@ -36,6 +39,11 @@ def create_app() -> FastAPI:
     runs_dir.mkdir(parents=True, exist_ok=True)
     app.state.run_store = RunStore(runs_dir)  # type: ignore[attr-defined]
     app.mount("/runs", StaticFiles(directory=str(runs_dir)), name="runs")
+
+    # Static sample content for demos
+    static_dir = Path(__file__).resolve().parents[1] / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     return app
 
 

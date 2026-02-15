@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from .base import Provider
 
@@ -9,7 +9,7 @@ class ClaudeProvider(Provider):
     name = "claude"
 
     async def generate(
-        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int
+        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int, api_key: Optional[str] = None
     ) -> Tuple[str, Dict[str, int], Dict[str, Any]]:
         # Placeholder implementation; no external calls in restricted env
         joined = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
@@ -19,6 +19,5 @@ class ClaudeProvider(Provider):
             "completion_tokens": max(1, len(text) // 4),
             "total_tokens": max(2, (len(joined) + len(text)) // 4),
         }
-        meta: Dict[str, Any] = {"provider": self.name, "model_family": "claude"}
+        meta: Dict[str, Any] = {"provider": self.name, "model_family": "claude", "api_key_present": bool(api_key)}
         return text, usage, meta
-

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from .base import Provider
 
@@ -9,7 +9,7 @@ class OpenAIProvider(Provider):
     name = "openai"
 
     async def generate(
-        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int
+        self, messages: List[Dict[str, str]], temperature: float, max_tokens: int, api_key: Optional[str] = None
     ) -> Tuple[str, Dict[str, int], Dict[str, Any]]:
         # Network access is restricted in this environment.
         # Implement a placeholder that mimics behavior.
@@ -20,6 +20,5 @@ class OpenAIProvider(Provider):
             "completion_tokens": max(1, len(text) // 4),
             "total_tokens": max(2, (len(joined) + len(text)) // 4),
         }
-        meta: Dict[str, Any] = {"provider": self.name, "model_family": "gpt"}
+        meta: Dict[str, Any] = {"provider": self.name, "model_family": "gpt", "api_key_present": bool(api_key)}
         return text, usage, meta
-

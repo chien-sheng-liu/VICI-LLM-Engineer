@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+import os
 
 from .config import GatewayConfig, model_to_provider
 from .logging_utils import log_event
@@ -59,13 +60,14 @@ async def _run_with_retries(
     max_tokens: int,
     timeout_s: float,
     max_retries: int,
+    api_key: str | None,
 ) -> Tuple[str, Dict[str, int], Dict[str, Any], int]:
     attempt = 0
     last_err: Exception | None = None
     while attempt <= max_retries:
         try:
             result = await asyncio.wait_for(
-                provider.generate(messages, temperature, max_tokens),
+                provider.generate(messages, temperature, max_tokens, api_key=api_key),
                 timeout=timeout_s,
             )
             text, usage, meta = result
@@ -126,6 +128,17 @@ async def chat_completions(
     msg_dicts = [m.dict() for m in req.messages]
     msg_dicts.append({"role": "system", "content": f"REQ:{request_id}"})
 
+    # Optional API Key from client, prefer Authorization: Bearer <key>, fallback X-OPENAI-API-KEY
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    api_key: str | None = None
+    if auth and auth.lower().startswith("bearer "):
+        api_key = auth.split(" ", 1)[1].strip()
+    elif request.headers.get("X-OPENAI-API-KEY"):
+        api_key = request.headers.get("X-OPENAI-API-KEY")
+    # Fallback to server-side .env if no key provided by client
+    if not api_key:
+        api_key = os.getenv("OPENAI_API_KEY")
+
     try:
         text, usage, meta, retries = await _run_with_retries(
             provider=pv,
@@ -134,6 +147,7 @@ async def chat_completions(
             max_tokens=req.max_tokens or 256,
             timeout_s=cfg.request_timeout_s,
             max_retries=cfg.max_retries,
+            api_key=api_key,
         )
     except asyncio.TimeoutError:
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -175,6 +189,7 @@ async def chat_completions(
         latency_ms=latency_ms,
         retry_count=retries,
         error=None,
+        api_key_present=bool(api_key),
     )
 
     created = int(time.time())
@@ -201,4 +216,3 @@ async def chat_completions(
         meta=meta,
     )
     return resp
-

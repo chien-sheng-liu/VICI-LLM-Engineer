@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import sys
 import json
 import os
 import uuid
@@ -57,6 +58,8 @@ def _load_agent_module() -> Any:
     if spec is None or spec.loader is None:
         raise RuntimeError("Unable to load agent module")
     module = importlib.util.module_from_spec(spec)
+    # Ensure the module is registered so dataclasses and annotations resolve properly
+    sys.modules[spec.name] = module  # type: ignore[arg-type]
     spec.loader.exec_module(module)  # type: ignore[attr-defined]
     return module
 
@@ -100,6 +103,7 @@ async def start_run(req: RunRequest, request: Request, store: RunStore = Depends
         out_dir=run_dir,
         dry_run=req.dry_run,
         timeout_s=float(os.getenv("AGENT_TIMEOUT_S", "15")),
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
     )
 
     async def _runner():
@@ -170,4 +174,3 @@ async def get_status(run_id: str, store: RunStore = Depends(get_store)) -> RunSt
         report_md_text=report_text,
         screenshots=screenshots,
     )
-

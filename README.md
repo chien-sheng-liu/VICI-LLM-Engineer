@@ -43,13 +43,31 @@ Prerequisites: Python 3.11+, pip; optional Node 18+ for frontend.
 
     make test
 
-3) Start gateway (localhost:8000)
+3) Configure environment
+
+    cp .env.example .env
+    # Edit .env and set OPENAI_API_KEY=sk-...
+
+4) Start gateway (localhost:8000)
 
     make run-gateway
 
-4) Trigger an agent run (dry‑run from CLI)
+5) Trigger an agent run (sample IR page)
 
-    make run-agent-demo
+    Use the built-in sample page served by the backend:
+
+    - API flow (backend must be running):
+      - Start backend as above, then:
+        curl -X POST http://localhost:8000/agent/run \
+          -H 'Content-Type: application/json' \
+          -d '{"ticker":"ACME","source":"http://localhost:8000/static/sample_ir.html","model":"gpt-3.5-turbo","dry_run":true}'
+      - Poll status: curl http://localhost:8000/agent/status/<run_id>
+    - CLI flow (no backend required, uses embedded sample):
+        python agent.py --ticker ACME --source http://localhost:8000/static/sample_ir.html --gateway http://localhost:8000 --model gpt-3.5-turbo --dry-run
+    - One-command showcase options:
+        make showcase-local   # offline, uses embedded sample://ir
+        # or after starting backend (make run-gateway or make up):
+        make showcase         # uses backend runner + sample static page
 
 5) Docker (backend + frontend)
 
@@ -100,11 +118,14 @@ Run the agent directly:
     python agent.py --ticker AAPL --source https://example.com --gateway http://localhost:8000 --model mock-01 --dry-run
 
 Artifacts per run:
-- `outputs/report.md` — includes Source URL, Evidence snippet, LLM summary, Timestamp
-- `outputs/slides.pdf` — minimal single‑page PDF
+- `outputs/report.md` — includes Source URL, Evidence snippet, extracted table (if any), Event Extraction, Sentiment/Surprise, Summary, Timestamp
+- `outputs/slides.pdf` — structured sections (Events, Sentiment/Surprise, Risks note) for quick review
 - `outputs/checksums.txt` — sha256 hashes
-- `run_logs/run.json` — ticker, source, steps, timings, artifact paths, request_ids, latency summary
-- `run_logs/trace.zip`, `run_logs/screenshots/…`
+- `run_logs/run.json` — ticker, source, steps, timings, artifact paths, request_ids (per LLM call), latency summary
+- `run_logs/trace.zip` — Playwright trace (or fallback)
+- `run_logs/screenshots/…` — screenshots
+- `run_logs/console.log` — console logs captured during browsing
+- `run_logs/llm_calls.jsonl` — JSONL for each LLM call (category, request_id, latency, usage)
 
 
 Frontend
@@ -118,7 +139,19 @@ Requires network to install Node packages.
 
 Docker Compose launches the frontend dev server on port 5173. Open http://localhost:5173.
 
-Set Gateway URL in the left panel (default `http://localhost:8000`). Click Run to trigger a backend run and view report/slides/screenshots.
+Set Gateway URL in the left panel (default `http://localhost:8000`).
+- Model: `gpt-3.5-turbo` (OpenAI)
+- API key is read on the server from `.env` (OPENAI_API_KEY). No key is required in the browser.
+Click Run to trigger a backend run and view report/slides/screenshots.
+
+Sample Scenario
+---------------
+
+- Source page: `http://localhost:8000/static/sample_ir.html` (ACME Corp Q2 IR update with a Time/Event/Guidance/Risk table)
+- Run via frontend or API; artifacts include:
+  - `outputs/report.md` — includes source link, evidence snippet, extracted table summary, LLM outputs (events, sentiment/surprise, summary)
+  - `outputs/slides.pdf` — compact deck with Events, Sentiment/Surprise, Risks
+  - `run_logs/` — `trace.zip`, `console.log`, `screenshots/1.png`, `llm_calls.jsonl` (each line has `category`, `request_id`, `latency_ms`, `usage`)
 
 Troubleshooting
 ---------------
