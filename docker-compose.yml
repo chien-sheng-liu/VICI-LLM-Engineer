@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      - GATEWAY_VERSION=0.1.0
+      - GATEWAY_REQUEST_TIMEOUT_S=15
+      - GATEWAY_MAX_RETRIES=2
+      - GATEWAY_MAX_INPUT_CHARS=4000
+      - GATEWAY_MAX_CONCURRENCY=10
+      - GATEWAY_ALLOWED_PROVIDERS=mock,openai,claude
+      - GATEWAY_ALLOWED_MODELS=mock-01,gpt-3.5-turbo,claude-3-haiku
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    working_dir: /app/backend
+    volumes:
+      - ./:/app
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    working_dir: /app/frontend
+    volumes:
+      - ./frontend:/app/frontend
+      - /app/frontend/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend

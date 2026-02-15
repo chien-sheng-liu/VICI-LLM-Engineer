@@ -1,0 +1,13 @@
+.git/
+.github/
+__pycache__/
+.pytest_cache/
+.venv/
+frontend/node_modules/
+runs/
+outputs/
+run_logs/
+*.pyc
+.DS_Store
+*.env
+.env
