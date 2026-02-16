@@ -99,15 +99,15 @@ Artifacts + Logs
 - run.json must include: ticker, source, steps, timings, artifacts, model used, latency summary
 
 ### 5.4 Responsibilities and Outputs
-- News Agent (agents/news_agent.py)
-  - Collect/aggregate external news (e.g., Yahoo/Google) and persist raw list to `run_logs/news.json`.
-  - Produce structured news items for UI: `sections.news` (raw items metadata) and `sections.news_micro` (LLM micro‑summaries with sentiment, type, confidence, KPI impact hints).
-  - Deterministic dry‑run: always return stable outputs without network.
-- Finance/Trader Agents (agents/finance_agent.py, agents/trader_agent.py)
-  - Produce `sections.fin_analysis` (thesis, drivers, risks, metrics_to_watch, positioning, timeframe, expected_move_pct, confidence).
-  - Produce `sections.trader_signals` (trend/momentum/volume/composite and supporting metrics) and `sections.watch_items`.
-  - Populate `sections.kpis` and `sections.finance_basic` from the browsing snapshot and optional data sources.
-  - Deterministic dry‑run supported.
+- News Agent (`agents/news_agent.py`)
+  - Encapsulated `NewsAgent` class handles both collection (Yahoo/Google scrape, deterministic dry-run) and micro-summaries via the gateway; persists raw list to `run_logs/news.json` and outputs `sections.news`/`sections.news_micro` exclusively.
+  - Event enrichment logic also lives inside the agent so `agent.py` only orchestrates results instead of duplicating parsing heuristics.
+- Finance/Trader Agents (`agents/finance_agent.py`, `agents/trader_agent.py`)
+  - `FinanceAgent` owns every LLM prompt related to finance/trader theses (sentiment, overview bullets, watchlist, KPI inference) while `trader_agent.py` continues to compute deterministic technical signals.
+  - These agents only consume gateway responses; Yahoo data fetching was removed to keep the responsibilities pure.
+- YFinance Agent (`agents/yfinance_agent.py`)
+  - `YFinanceAgent` is the single interface for Yahoo Finance data: snapshot KPIs/analysis, intraday price stats, sparkline series, and Chinese company-name localization (via Yahoo quote HTML when APIs return English strings).
+  - Provides deterministic dry-run fallbacks by returning empty structures when Yahoo endpoints are unreachable.
 
 ---
 

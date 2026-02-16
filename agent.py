@@ -16,6 +16,7 @@ import hashlib
 import uuid
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -28,15 +29,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+CHINESE_RE = re.compile(r'[\u4e00-\u9fff]')
+
 # Externalized agent modules
 try:
-    from agents import news_agent, finance_agent, trader_agent
+    from agents.finance_agent import FinanceAgent
+    from agents.news_agent import NewsAgent
+    from agents.yfinance_agent import YFinanceAgent
+    from agents import trader_agent
     from agents.data_sources import fetch_yfinance_data
     from agents.scoring import combine_confidence
 except Exception:
-    news_agent = None  # type: ignore
-    finance_agent = None  # type: ignore
+    FinanceAgent = None  # type: ignore
+    NewsAgent = None  # type: ignore
+    YFinanceAgent = None  # type: ignore
     trader_agent = None  # type: ignore
+    fetch_yfinance_data = None  # type: ignore
+
     def combine_confidence(llm_conf: Optional[float], news: Dict[str, str]) -> int:  # fallback
         return int(llm_conf or 3)
 
@@ -75,6 +84,24 @@ def _load_sample_html() -> str:
         return sample.read_text(encoding="utf-8")
     # Fallback minimal sample
     return "<html><body><h1>Sample IR</h1><table><tr><th>Time</th><th>Event</th><th>Guidance</th><th>Risk</th></tr><tr><td>2026-02-15</td><td>Q2</td><td>FY Rev Up</td><td>FX</td></tr></table></body></html>"
+
+
+def _has_chinese(text: Optional[str]) -> bool:
+    return bool(text and CHINESE_RE.search(text))
+
+
+def _prefer_company_name(current: Optional[str], candidate: Optional[str]) -> Optional[str]:
+    curr = (current or '').strip()
+    cand = (candidate or '').strip()
+    if not curr and not cand:
+        return None
+    if not curr:
+        return cand or None
+    if not cand:
+        return curr or None
+    if _has_chinese(cand) and not _has_chinese(curr):
+        return cand
+    return curr
 
 
 def _write_minimal_pdf(path: Path, title: str, body: str, sections: Optional[List[tuple[str, str]]] = None) -> None:
@@ -292,13 +319,61 @@ def _parse_json_from_text(text: Optional[str]) -> Optional[Any]:
     return None
 
 
-def _extract_yahoo_snapshot(html: Optional[str], ticker: str) -> Dict[str, Any]:
-    if not html:
+def _extract_chinese_company_name(html_text: Optional[str], ticker: str) -> Optional[str]:
+    if not html_text:
+        return None
+    try:
+        import re
+        from html import unescape
+
+        patterns = [
+            r'<h1[^>]*>(.*?)</h1>',
+            r'<h2[^>]*>(.*?)</h2>',
+            r'"companyName"\s*:\s*"(.*?)"',
+            r'"shortName"\s*:\s*"(.*?)"',
+            r'"longName"\s*:\s*"(.*?)"',
+        ]
+        seen: set[str] = set()
+        candidates: List[str] = []
+        for pattern in patterns:
+            try:
+                matches = re.findall(pattern, html_text, flags=re.S | re.I)
+            except re.error:
+                continue
+            for raw in matches:
+                text = re.sub(r'<[^>]+>', '', raw)
+                text = unescape(text).strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                candidates.append(text)
+        chinese_re = re.compile(r'[\u4e00-\u9fff]')
+        ticker_pattern = re.escape(ticker)
+        for text in candidates:
+            if not chinese_re.search(text):
+                continue
+            cleaned = re.sub(r'\s+', ' ', text)
+            cleaned = re.sub(rf'[\(（]\s*{ticker_pattern}(?:\.TW)?\s*[\)）]', ' ', cleaned)
+            cleaned = re.sub(rf'{ticker_pattern}(?:\.TW)?', ' ', cleaned)
+            cleaned = cleaned.strip(' -–—')
+            cleaned = ' '.join(cleaned.split())
+            low = cleaned.lower()
+            if any(bad in low for bad in ["yahoo", "股市", "儀表板", "行情", "首頁"]):
+                continue
+            if cleaned:
+                return cleaned
+    except Exception:
+        return None
+    return None
+
+
+def _extract_yahoo_snapshot(html_text: Optional[str], ticker: str) -> Dict[str, Any]:
+    if not html_text:
         return {}
     try:
         import re
         # Yahoo embeds a JSON blob: root.App.main = {...};
-        match = re.search(r"root\\.App\\.main\s*=\s*(\{.*?\});", html, flags=re.S)
+        match = re.search(r"root\\.App\\.main\s*=\s*(\{.*?\});", html_text, flags=re.S)
         if not match:
             return {}
         data = json.loads(match.group(1))
@@ -311,6 +386,9 @@ def _extract_yahoo_snapshot(html: Optional[str], ticker: str) -> Dict[str, Any]:
         table_rows: List[Dict[str, str]] = []
         kpis: Dict[str, Any] = {}
         name = price.get("longName") or price.get("shortName") or ticker
+        localized_name = _extract_chinese_company_name(html_text, ticker)
+        if localized_name:
+            name = localized_name
         if price.get("regularMarketPrice") is not None:
             change = price.get("regularMarketChange")
             percent = price.get("regularMarketChangePercent")
@@ -706,6 +784,7 @@ def _fetch_yahoo_tw(ticker: str, shots_dir: Path, logs_dir: Path, dry_run: bool)
                 {"指標": "模擬股價", "數值": "600 TWD"},
                 {"指標": "法人建議", "數值": "buy"},
             ],
+            "name": f"{ticker} 模擬公司",
         }
         return {
             "screenshot": str(p),
@@ -715,6 +794,7 @@ def _fetch_yahoo_tw(ticker: str, shots_dir: Path, logs_dir: Path, dry_run: bool)
             "url": target_url,
             "snapshot_text": snapshot["text"],
             "snapshot_table": snapshot["table"],
+            "company_name": snapshot.get("name"),
             "latency_ms": int((time.perf_counter() - started) * 1000),
         }
     try:
@@ -886,6 +966,13 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     steps: List[Dict[str, Any]] = []
     t0 = time.perf_counter()
 
+    def call_gw(_gw, msgs, model, to, dr, category, llm_log_path=None, api_key=None):
+        return _call_gateway(args.gateway, msgs, model, to, dr, category, llm_log_path, api_key)
+
+    news_client = NewsAgent(call_gw) if NewsAgent else None
+    finance_client = FinanceAgent(call_gw) if FinanceAgent else None
+    yfinance_client = YFinanceAgent() if YFinanceAgent else None
+
     # Step 1: browse and capture
     s0 = time.perf_counter()
     if args.yahoo:
@@ -923,22 +1010,37 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Always try finance_agent for open/close even if USE_YFINANCE not set
+    yfinance_snapshot: Dict[str, Any] = {}
+    if yfinance_client:
+        try:
+            yfinance_snapshot = yfinance_client.fetch_snapshot(args.ticker)
+            if isinstance(yfinance_snapshot.get('kpis'), dict):
+                for key, value in yfinance_snapshot['kpis'].items():
+                    if value is not None and key not in snapshot_kpis:
+                        snapshot_kpis[key] = value
+            if yfinance_snapshot.get('company_name'):
+                merged = _prefer_company_name(nav.get('company_name'), yfinance_snapshot['company_name'])
+                if merged:
+                    nav['company_name'] = merged
+        except Exception:
+            yfinance_snapshot = {}
+
+    # Always try yfinance for open/close even if USE_YFINANCE not set
     try:
-        if finance_agent and hasattr(finance_agent, 'fetch_yfinance_prices'):
-            yfp = finance_agent.fetch_yfinance_prices(args.ticker)
+        if yfinance_client:
+            yfp = yfinance_client.fetch_intraday_kpis(args.ticker)
             if isinstance(yfp, dict) and isinstance(yfp.get('kpis'), dict):
                 snapshot_kpis.update(yfp['kpis'])
     except Exception:
         pass
 
-    # Fetch a short price series for sparkline via finance_agent if available
+    # Fetch a short price series for sparkline via yfinance if available
     price_series: List[float] = []
     high_series: List[float] = []
     low_series: List[float] = []
     try:
-        if finance_agent and hasattr(finance_agent, 'fetch_yfinance_series'):
-            yfs = finance_agent.fetch_yfinance_series(args.ticker)
+        if yfinance_client:
+            yfs = yfinance_client.fetch_price_series(args.ticker)
             if isinstance(yfs, dict) and isinstance(yfs.get('series'), dict):
                 if isinstance(yfs['series'].get('close'), list):
                     price_series = [float(x) for x in yfs['series']['close']]
@@ -953,10 +1055,10 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Step 2b: collect news via news_agent
+    # Step 2b: collect news via NewsAgent
     sN = time.perf_counter()
-    if news_agent:
-        news_items = news_agent.collect_news(args.ticker, nav.get("url"), logs, dry_run=args.dry_run, company_name=nav.get("company_name"))
+    if news_client:
+        news_items = news_client.collect(args.ticker, nav.get("url"), logs, dry_run=args.dry_run, company_name=nav.get("company_name"))
     else:
         news_items = _collect_news(args.ticker, nav.get("url"), logs, dry_run=args.dry_run, company_name=nav.get("company_name"))
     steps.append({"name": "news", "latency_ms": int((time.perf_counter() - sN) * 1000), "count": len(news_items)})
@@ -981,9 +1083,6 @@ def run(args: AgentArgs) -> Dict[str, Any]:
 
     # Step 3: LLM calls
     llm_log_path = logs / "llm_calls.jsonl"
-    # Provide a unified gateway caller for sub-agents
-    def call_gw(_gw, msgs, model, to, dr, category, llm_log_path=None, api_key=None):
-        return _call_gateway(args.gateway, msgs, model, to, dr, category, llm_log_path, api_key)
     news_titles = [n.get("title", "") for n in news_items if n.get("title")] 
     news_text = "；".join(news_titles)
     table_highlights = "; ".join([f"{row.get('指標')}: {row.get('數值')}" for row in snapshot_table[:3]])
@@ -1032,9 +1131,8 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     # 3b. Sentiment / surprise
     s2a = time.perf_counter()
     try:
-        if finance_agent:
-            llm_sent = finance_agent.analyze_sentiment(
-                call_gw,
+        if finance_client:
+            llm_sent = finance_client.generate_sentiment(
                 messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key,
             )
         else:
@@ -1046,11 +1144,11 @@ def run(args: AgentArgs) -> Dict[str, Any]:
                 )}],
                 args.model,
                 args.timeout_s,
-        args.dry_run,
-        category="sentiment",
-        llm_log_path=llm_log_path,
-        api_key=args.openai_api_key,
-    )
+                args.dry_run,
+                category="sentiment",
+                llm_log_path=llm_log_path,
+                api_key=args.openai_api_key,
+            )
     except Exception:
         llm_sent = {"request_id": f"fallback-sent-{uuid.uuid4().hex[:8]}", "text": "中性；近期消息影響待觀察", "latency_ms": 0, "retry_count": 0}
     steps.append({"name": "llm_sentiment", "latency_ms": int((time.perf_counter() - s2a) * 1000), "request_id": llm_sent["request_id"]})
@@ -1061,9 +1159,8 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         pass
     except Exception:
         pass
-    if finance_agent:
-        llm_bullets = finance_agent.overview_bullets(
-            call_gw,
+    if finance_client:
+        llm_bullets = finance_client.overview_bullets(
             messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key,
         )
     else:
@@ -1077,12 +1174,11 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             llm_log_path=llm_log_path,
             api_key=args.openai_api_key,
         )
-    # bullets 如要包try/except，可在 finance_agent 中包；這裡保持直通
+    # bullets 如要包try/except，可在 finance_client 中包；這裡保持直通
     # 3c-1. Trader insights (explicit)
     s2b_tr = time.perf_counter()
-    if finance_agent:
-        llm_trader = finance_agent.trader_insights(
-            call_gw,
+    if finance_client:
+        llm_trader = finance_client.trader_insights(
             messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key,
         )
     else:
@@ -1101,9 +1197,8 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         )
     # 3d. Watchlist suggestions
     s2c = time.perf_counter()
-    if finance_agent:
-        llm_watch = finance_agent.watchlist(
-            call_gw,
+    if finance_client:
+        llm_watch = finance_client.watchlist(
             messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key,
         )
     else:
@@ -1156,9 +1251,8 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     micro_ids: list[str] = []
     total_micro_ms = 0
     for i, n in enumerate(news_items[:10]):
-        if news_agent:
-            micro, rid, lat = news_agent.summarize_single_news(
-                call_gw,
+        if news_client:
+            micro, rid, lat = news_client.summarize_item(
                 system_only, n, args.model, args.timeout_s, args.dry_run, args.openai_api_key,
             )
             micro_items.append(micro)
@@ -1243,11 +1337,11 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         watch_items = parsed_w['watch']
     # Per-news KPI impact inference (revenue/gross_margin/eps)
     try:
-        if finance_agent:
+        if finance_client:
             total_kpi_ms = 0
             for i, m in enumerate(micro_items[:10]):
-                resp = finance_agent.analyze_kpi_impact(
-                    call_gw, m, snapshot_kpis, messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key
+                resp = finance_client.analyze_kpi_impact(
+                    m, snapshot_kpis, messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key
                 )
                 rid = resp.get("request_id")
                 if rid:
@@ -1264,8 +1358,8 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         import re
         return re.sub(r"[^\w\u4e00-\u9fa5]", "", s.lower())
 
-    if news_agent:
-        events_struct = news_agent.enrich_or_build_events(events_struct, micro_items, snapshot_kpis)
+    if news_client:
+        events_struct = news_client.enrich_events(events_struct, micro_items, snapshot_kpis)
 
     # minimal fallback if still missing -> derive from top news
     if not events_struct:
@@ -1385,13 +1479,29 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     # 3g. Finance/quant analysis based on news + KPIs
     fin_json: Dict[str, Any] | None = None
     try:
-        if finance_agent:
-            fin_resp = finance_agent.analyze_financials(
-                call_gw, micro_items, snapshot_kpis, messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key
+        if finance_client:
+            fin_resp = finance_client.analyze_financials(
+                micro_items, snapshot_kpis, messages, args.model, args.timeout_s, args.dry_run, args.openai_api_key
             )
-            fin_parsed = _parse_json_from_text(fin_resp.get("text"))
-            if isinstance(fin_parsed, dict):
-                fin_json = fin_parsed
+        else:
+            fin_resp = _call_gateway(
+                args.gateway,
+                messages + [{"role": "user", "content": (
+                    "你是量化交易與財務分析結合的分析師，使用繁體中文作答。"
+                    "綜合以下新聞重點與KPIs，輸出JSON："
+                    "{\"thesis\":str,\"drivers\":[str],\"risks\":[str],\"positioning\":[str],\"metrics_to_watch\":[str],\"timeframe\":str,\"expected_move_pct\":number,\"confidence\":1-5}."
+                    "避免明確下單指令與保證語句。"
+                )}],
+                args.model,
+                args.timeout_s,
+                args.dry_run,
+                category="fin_analysis",
+                llm_log_path=llm_log_path,
+                api_key=args.openai_api_key,
+            )
+        fin_parsed = _parse_json_from_text(fin_resp.get("text"))
+        if isinstance(fin_parsed, dict):
+            fin_json = fin_parsed
     except Exception:
         fin_json = None
 
@@ -1433,6 +1543,17 @@ def run(args: AgentArgs) -> Dict[str, Any]:
                 fin_json['confidence'] = 3
     except Exception:
         pass
+
+    if isinstance(yfinance_snapshot.get('analysis'), dict):
+        y_analysis: Dict[str, Any] = yfinance_snapshot['analysis']
+        if fin_json is None:
+            fin_json = {}
+        for key in ('drivers', 'risks', 'positioning', 'metrics_to_watch'):
+            if not fin_json.get(key) and y_analysis.get(key):
+                fin_json[key] = y_analysis[key]
+        for scalar in ('thesis', 'expected_move_pct', 'timeframe', 'confidence'):
+            if not fin_json.get(scalar) and y_analysis.get(scalar):
+                fin_json[scalar] = y_analysis.get(scalar)
 
     report_lines = [
         f"# 股票研究報告｜{args.ticker}",

@@ -1,5 +1,6 @@
-"""Agent submodules: news_agent, finance_agent, scoring.
+"""Agent submodules and helper classes live here.
 
-These are imported by agent.py (root) and orchestrated by backend/app/agent_runner.py.
+- :mod:`agents.news_agent` exposes :class:`NewsAgent` for gathering + summarizing news
+- :mod:`agents.finance_agent` exposes :class:`FinanceAgent` for LLM prompts
+- :mod:`agents.yfinance_agent` exposes :class:`YFinanceAgent` for Yahoo data snapshots
 """
-

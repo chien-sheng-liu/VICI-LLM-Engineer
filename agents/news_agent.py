@@ -8,7 +8,48 @@ from .scoring import combine_confidence
 CallGateway = Callable[[Optional[str], List[Dict[str, str]], str, float, bool, str, Optional[Any], Optional[str]], Dict[str, Any]]
 
 
-def summarize_single_news(
+class NewsAgent:
+    """Encapsulates news collection + summarization responsibilities."""
+
+    def __init__(self, call_gateway: Optional[CallGateway] = None) -> None:
+        self._call_gateway = call_gateway
+
+    def bind_gateway(self, call_gateway: CallGateway) -> None:
+        self._call_gateway = call_gateway
+
+    def collect(
+        self,
+        ticker: str,
+        base_url: Optional[str],
+        logs_dir,
+        dry_run: bool,
+        company_name: Optional[str] = None,
+    ) -> List[Dict[str, str]]:
+        return _collect_news(ticker, base_url, logs_dir, dry_run, company_name)
+
+    def summarize_item(
+        self,
+        system_msgs: List[Dict[str, str]],
+        item: Dict[str, Any],
+        model: str,
+        timeout_s: float,
+        dry_run: bool,
+        api_key: Optional[str],
+    ) -> Tuple[Dict[str, Any], Optional[str], int]:
+        if not self._call_gateway:
+            raise RuntimeError("NewsAgent requires a call_gateway for summarization")
+        return _summarize_single_news(self._call_gateway, system_msgs, item, model, timeout_s, dry_run, api_key)
+
+    def enrich_events(
+        self,
+        events: Optional[List[Dict[str, Any]]],
+        micro_items: List[Dict[str, Any]],
+        snapshot_kpis: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        return _enrich_or_build_events(events, micro_items, snapshot_kpis)
+
+
+def _summarize_single_news(
     call_gateway: CallGateway,
     system_msgs: List[Dict[str, str]],
     item: Dict[str, Any],
@@ -91,7 +132,7 @@ def _parse_json(text: Optional[str]) -> Optional[Any]:
     return None
 
 
-def enrich_or_build_events(
+def _enrich_or_build_events(
     events: Optional[List[Dict[str, Any]]],
     micro_items: List[Dict[str, Any]],
     snapshot_kpis: Dict[str, Any] | None,
@@ -166,7 +207,7 @@ def _dedup_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 # News collection (moved from orchestrator for modularity)
-def collect_news(ticker: str, base_url: Optional[str], logs_dir, dry_run: bool, company_name: Optional[str] = None) -> List[Dict[str, str]]:
+def _collect_news(ticker: str, base_url: Optional[str], logs_dir, dry_run: bool, company_name: Optional[str] = None) -> List[Dict[str, str]]:
     import json
     from pathlib import Path
     news_path = Path(logs_dir) / "news.json"
@@ -212,6 +253,7 @@ def collect_news(ticker: str, base_url: Optional[str], logs_dir, dry_run: bool, 
     items: List[Dict[str, str]] = _collect_news_google(q, logs_dir) if q else []
     try:
         import httpx
+
         with httpx.Client(timeout=10.0) as client:
             for url in candidates:
                 try:
@@ -241,7 +283,9 @@ def collect_news(ticker: str, base_url: Optional[str], logs_dir, dry_run: bool, 
 def _collect_news_google(query: str, logs_dir, lang: str = "zh-TW") -> List[Dict[str, str]]:
     try:
         from urllib.parse import unquote, urlparse, quote_plus
-        import httpx, re
+        import httpx
+        import re
+
         url = f"https://www.google.com/search?tbm=nws&hl={lang}&q={quote_plus(query)}"
         with httpx.Client(timeout=10.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
             r = client.get(url)
@@ -279,8 +323,15 @@ def _collect_news_google(query: str, logs_dir, lang: str = "zh-TW") -> List[Dict
                 approx_time = _relative_time_to_iso(window)
                 category = _classify_source(host)
                 if title:
-                    results.append({"title": title, "url": href, "time": approx_time or _now_iso(), "source": source, "category": category})
-            uniq, seen = [], set()
+                    results.append({
+                        "title": title,
+                        "url": href,
+                        "time": approx_time or _now_iso(),
+                        "source": source,
+                        "category": category,
+                    })
+            uniq: List[Dict[str, str]] = []
+            seen: set[str] = set()
             for it in results:
                 if it['url'] in seen:
                     continue
@@ -289,6 +340,9 @@ def _collect_news_google(query: str, logs_dir, lang: str = "zh-TW") -> List[Dict
             return uniq[:6]
     except Exception:
         return []
+
+
+__all__ = ["NewsAgent"]
 
 
 def _relative_time_to_iso(window: str) -> Optional[str]:

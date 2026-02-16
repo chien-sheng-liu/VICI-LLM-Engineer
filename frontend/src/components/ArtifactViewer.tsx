@@ -36,8 +36,30 @@ const formatMoney = (value: any, currency?: string) => {
   return formatNumber(num, 2)
 }
 
+const formatCompact = (value: any) => {
+  const num = toNumber(value)
+  if (num === null) return typeof value === 'undefined' ? '—' : String(value)
+  try {
+    return Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(num)
+  } catch {
+    const abs = Math.abs(num)
+    const units = [
+      { unit: 1e12, suffix: 'T' },
+      { unit: 1e9, suffix: 'B' },
+      { unit: 1e6, suffix: 'M' },
+      { unit: 1e3, suffix: 'K' },
+    ]
+    for (const { unit, suffix } of units) {
+      if (abs >= unit) {
+        return `${(num / unit).toFixed(abs / unit >= 10 ? 0 : 2)}${suffix}`
+      }
+    }
+    return formatNumber(num)
+  }
+}
+
 export const ArtifactViewer: React.FC<Props> = ({ sections, reportContent }) => {
-  const data = sections?.summary || sections?.kpis ? sections : sections?.report_sections || sections || null
+  const data = sections?.report_sections || sections || null
   if (!data) {
     return <div className="md">{reportContent || 'No report yet.'}</div>
   }
@@ -49,12 +71,13 @@ export const ArtifactViewer: React.FC<Props> = ({ sections, reportContent }) => 
   const traderSignals = data.trader_signals || null
   const table = Array.isArray(data.table) ? data.table : []
 
-  const ticker = (data.ticker || '').toUpperCase() || '—'
-  const company = data.company_name || kpis.company_name || '—'
+  const ticker = (data.ticker || data.symbol || '').toUpperCase() || '尚未取得'
+  const company = data.company_name || kpis.company_name || '尚未取得'
   const source = data.source || '—'
+  const summaryText = (data.summary && String(data.summary).trim()) || ''
   const traderNotes = (data.trader_insights && String(data.trader_insights).trim())
     || (Array.isArray(data.trader_insights_list) ? data.trader_insights_list.join(' / ') : '')
-  const heroNotes = traderNotes || fin.thesis || '等待代理人完成分析。'
+  const heroNotes = traderNotes || fin.thesis || summaryText || '等待代理人完成分析。'
 
   const composite: number | undefined = typeof traderSignals?.composite_score === 'number' ? traderSignals.composite_score : undefined
   const stance = (() => {
@@ -86,11 +109,11 @@ export const ArtifactViewer: React.FC<Props> = ({ sections, reportContent }) => 
   if (typeof kpis.target_mean_price !== 'undefined') keyLevels.push(`Street PT ${formatMoney(kpis.target_mean_price, kpis.currency)}`)
 
   const kpiCards = [
-    { label: 'Price', value: formatMoney(kpis.price, kpis.currency) },
-    { label: 'Change', value: typeof kpis.change_percent === 'number' ? `${formatNumber(kpis.change_percent)}%` : kpis.change_percent || '—' },
+    { label: 'Price', value: formatMoney(kpis.price ?? data.price, kpis.currency) },
+    { label: 'Change', value: kpis.change_percent ? `${formatNumber(kpis.change_percent)}%` : (kpis.change ? formatNumber(kpis.change) : '—') },
     { label: 'Volume', value: kpis.volume ? formatNumber(kpis.volume, 0) : '—' },
-    { label: 'Market Cap', value: kpis.market_cap ? formatNumber(kpis.market_cap, 0) : '—' },
-    { label: 'Fwd P/E', value: formatNumber(kpis.pe_fwd) },
+    { label: 'Market Cap', value: kpis.market_cap ? formatCompact(kpis.market_cap) : (finBasic.market_cap ? formatCompact(finBasic.market_cap) : '—') },
+    { label: 'Fwd P/E', value: formatNumber(kpis.pe_fwd || finBasic.pe_fwd) },
     { label: 'Yield', value: kpis.dividend_yield_pct ? `${formatNumber(kpis.dividend_yield_pct)}%` : '—' },
   ]
 
@@ -129,18 +152,18 @@ export const ArtifactViewer: React.FC<Props> = ({ sections, reportContent }) => 
         <div className="trade-grid">
           <div>
             <div className="label">Thesis</div>
-            <p>{fin.thesis || '—'}</p>
+            <p>{fin.thesis || summaryText || '代理人尚未提供論點。'}</p>
           </div>
           <div>
             <div className="label">Trader Notes</div>
-            <p>{traderNotes || '—'}</p>
+            <p>{traderNotes || '尚無交易員備註。'}</p>
           </div>
         </div>
         <div className="list-row">
           <div>
             <div className="label">Drivers</div>
             <ul>
-              {(Array.isArray(fin.drivers) && fin.drivers.length > 0 ? fin.drivers : ['—']).map((item: string, idx: number) => (
+              {(Array.isArray(fin.drivers) && fin.drivers.length > 0 ? fin.drivers : ['尚未辨識主要驅動']).map((item: string, idx: number) => (
                 <li key={`driver-${idx}`}>{item}</li>
               ))}
             </ul>
@@ -148,7 +171,7 @@ export const ArtifactViewer: React.FC<Props> = ({ sections, reportContent }) => 
           <div>
             <div className="label">Risks</div>
             <ul>
-              {(Array.isArray(fin.risks) && fin.risks.length > 0 ? fin.risks : ['—']).map((item: string, idx: number) => (
+              {(Array.isArray(fin.risks) && fin.risks.length > 0 ? fin.risks : ['尚未辨識主要風險']).map((item: string, idx: number) => (
                 <li key={`risk-${idx}`}>{item}</li>
               ))}
             </ul>
@@ -156,7 +179,7 @@ export const ArtifactViewer: React.FC<Props> = ({ sections, reportContent }) => 
           <div>
             <div className="label">Strategy</div>
             <ul>
-              {(Array.isArray(fin.positioning) && fin.positioning.length > 0 ? fin.positioning : ['—']).map((item: string, idx: number) => (
+              {(Array.isArray(fin.positioning) && fin.positioning.length > 0 ? fin.positioning : ['尚未提供策略建議']).map((item: string, idx: number) => (
                 <li key={`pos-${idx}`}>{item}</li>
               ))}
             </ul>
