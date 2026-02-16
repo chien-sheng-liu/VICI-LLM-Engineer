@@ -23,6 +23,6 @@ jobs:
         env:
           GATEWAY_REQUEST_TIMEOUT_S: '0.5'
           GATEWAY_MAX_RETRIES: '2'
+          PYTHONPATH: .
         run: |
           pytest -q
-
