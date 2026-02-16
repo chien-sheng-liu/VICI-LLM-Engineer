@@ -9,9 +9,9 @@ export const Layout: React.FC<Props> = ({ left, right }) => {
         <div className="title">VICI Research Agent</div>
         <div className="sub">台股研究 × 瀏覽器擷取 × LLM 分析</div>
       </div>
-      <div className="app">
-        <div className="sidebar">{left}</div>
-        <div className="content">{right}</div>
+      <div className="page-stack">
+        <section className="panel intro-panel">{left}</section>
+        <section className="panel main-panel">{right}</section>
       </div>
     </div>
   )

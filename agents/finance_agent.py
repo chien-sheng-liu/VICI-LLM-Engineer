@@ -114,11 +114,36 @@ def fetch_yfinance_series(ticker: str, period: str = "1mo", interval: str = "1d"
         tk = yf.Ticker(_normalize_ticker(ticker))
         hist = tk.history(period=period, interval=interval)
         closes = []
+        highs = []
+        lows = []
         try:
             closes = [float(x) for x in hist["Close"].tolist() if x is not None]
+            if "High" in hist.columns:
+                highs = [float(x) for x in hist["High"].tolist() if x is not None]
+            if "Low" in hist.columns:
+                lows = [float(x) for x in hist["Low"].tolist() if x is not None]
         except Exception:
             pass
-        return {"series": {"close": closes[-60:]}} if closes else {}
+        out: Dict[str, Any] = {"close": closes[-60:]}
+        if highs:
+            out["high"] = highs[-60:]
+        if lows:
+            out["low"] = lows[-60:]
+        # Previous day high/low if available
+        prev_day_high = None
+        prev_day_low = None
+        try:
+            if len(highs) >= 2:
+                prev_day_high = highs[-2]
+            if len(lows) >= 2:
+                prev_day_low = lows[-2]
+        except Exception:
+            prev_day_high = None
+            prev_day_low = None
+        if prev_day_high is not None or prev_day_low is not None:
+            out["prev_day_high"] = prev_day_high
+            out["prev_day_low"] = prev_day_low
+        return {"series": out} if closes else {}
     except Exception:
         return {}
 

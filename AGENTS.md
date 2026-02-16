@@ -98,13 +98,25 @@ Artifacts + Logs
 - run_logs must include: run.json, trace.zip, screenshots/, request_ids used
 - run.json must include: ticker, source, steps, timings, artifacts, model used, latency summary
 
+### 5.4 Responsibilities and Outputs
+- News Agent (agents/news_agent.py)
+  - Collect/aggregate external news (e.g., Yahoo/Google) and persist raw list to `run_logs/news.json`.
+  - Produce structured news items for UI: `sections.news` (raw items metadata) and `sections.news_micro` (LLM micro‑summaries with sentiment, type, confidence, KPI impact hints).
+  - Deterministic dry‑run: always return stable outputs without network.
+- Finance/Trader Agents (agents/finance_agent.py, agents/trader_agent.py)
+  - Produce `sections.fin_analysis` (thesis, drivers, risks, metrics_to_watch, positioning, timeframe, expected_move_pct, confidence).
+  - Produce `sections.trader_signals` (trend/momentum/volume/composite and supporting metrics) and `sections.watch_items`.
+  - Populate `sections.kpis` and `sections.finance_basic` from the browsing snapshot and optional data sources.
+  - Deterministic dry‑run supported.
+
 ---
 
 ## 6. Artifacts
 
 outputs/
-- report.md (must include Source URL, Extracted evidence snippet, LLM summary, Timestamp)
-  - In Yahoo mode, Source URL reflects the visited quote page
+- report.md (finance/trader‑first structure; must include Source URL, LLM summary, Timestamp)
+  - Emphasize financial conclusions and trader insights; any news summary appears at the end if included.
+  - In Yahoo mode, Source URL reflects the visited quote page.
 - slides.pdf (research summary, highlights, risks section)
 - checksums.txt (sha256 of artifacts)
 
@@ -114,18 +126,23 @@ outputs/
 
 ### 7.1 Layout
 - Left panel: ticker, source URL, model selector, run button
-- Right panel tabs: Report, Slides, Logs, Screenshots
+- Right panel tabs: Report, News, Logs, History
 
 ### 7.2 Components (REQUIRED)
-- Layout.tsx, RunForm.tsx, RunStatus.tsx, ArtifactViewer.tsx, LogViewer.tsx
+- Layout.tsx, RunForm.tsx, RunStatus.tsx, ArtifactViewer.tsx (Report view), NewsViewer.tsx, LogViewer.tsx
 
 ### 7.3 Behavior
 - Trigger backend run
 - Poll run status
-- Display report content
-- Display slides link/embed
-- Display logs grouped by request_id
-- Display screenshot gallery
+- Report tab renders finance/trader content only from `sections.fin_analysis`, `sections.trader_signals`, `sections.kpis`, `sections.finance_basic`, `sections.watch_items`.
+- News tab renders news‑only content from `sections.news` and `sections.news_micro` with sentiment/source/keywords; must not repeat KPI/valuation/Trader signals.
+- Logs tab displays gateway/LLM calls and browser console logs.
+- History tab lists prior runs with quick links to artifacts.
+
+### 7.4 Content Boundaries (No Duplication)
+- Report tab must NOT display per‑news lists, event lists, or overall news sentiment; it focuses on finance/trader metrics and watch items.
+- News tab must NOT display KPI/valuation cards or trader indicators; it focuses on sentiment breakdown, source categories, keywords, and per‑news summaries.
+- This separation is enforced in components and considered acceptance‑critical.
 
 ---
 
@@ -141,6 +158,7 @@ outputs/
 - Dry-run mode
 - report.md created
 - run.json created
+ - Sections integrity: `news`/`news_micro` present for News; `fin_analysis`/`trader_signals` present for Report.
 
 ---
 
@@ -220,3 +238,4 @@ Deliver an engineering-grade LLM Gateway + Browser Agent system demonstrating:
 - [ ] Agent CLI produces report.md, slides.pdf, run.json, screenshots, trace.zip
 - [ ] Frontend triggers run, polls status, shows artifacts and logs
 - [ ] Docker + Makefile targets work
+ - [ ] Report and News tabs have no duplicated content (finance/trader vs news separation)

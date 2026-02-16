@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { Layout } from './components/Layout'
 import { RunForm } from './components/RunForm'
-import { RunStatus } from './components/RunStatus'
 import { LogViewer } from './components/LogViewer'
 import { ArtifactViewer } from './components/ArtifactViewer'
 import { NewsViewer } from './components/NewsViewer'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 export const App: React.FC = () => {
   const [reportContent, setReportContent] = useState<string>('')
@@ -12,7 +12,7 @@ export const App: React.FC = () => {
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState<string>('')
   const [error, setError] = useState<string>('')
-  const [tab, setTab] = useState<'Report'|'News'|'Logs'|'History'>('Report')
+  const [tab, setTab] = useState<'Report' | 'News' | 'Logs' | 'History'>('Report')
   const [history, setHistory] = useState<{ runId: string; reportUrl?: string; when: number }[]>([])
   const [openHistory, setOpenHistory] = useState<Record<string, boolean>>({})
   const [consoleUrl, setConsoleUrl] = useState<string | undefined>(undefined)
@@ -20,8 +20,12 @@ export const App: React.FC = () => {
   const [newsUrl, setNewsUrl] = useState<string | undefined>(undefined)
   const [newsItems, setNewsItems] = useState<{ title: string; url: string; time?: string }[]>([])
   const [sections, setSections] = useState<any | null>(null)
+  const [contextMeta, setContextMeta] = useState({ ticker: '—', model: '—', source: '—', company: '—' })
+  const activeTicker = sections?.report_sections?.ticker || contextMeta.ticker || '—'
+  const activeSource = sections?.report_sections?.source || contextMeta.source || '—'
+  const activeModel = sections?.report_sections?.model || contextMeta.model || '—'
+  const activeCompany = sections?.report_sections?.company_name || contextMeta.company || '—'
 
-  // Load history from localStorage on mount
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem('runHistory')
@@ -32,12 +36,10 @@ export const App: React.FC = () => {
     } catch {}
   }, [])
 
-  // Persist history
   React.useEffect(() => {
     try { localStorage.setItem('runHistory', JSON.stringify(history)) } catch {}
   }, [history])
 
-  // Load news JSON when URL changes
   React.useEffect(() => {
     if (sections?.news && Array.isArray(sections.news)) {
       setNewsItems(sections.news)
@@ -59,49 +61,82 @@ export const App: React.FC = () => {
   return (
     <Layout
       left={
-        <div>
-          <RunForm
-            running={running}
-            onRun={(res) => {
+        <RunForm
+          running={running}
+          onRun={(res) => {
               setRunning(res.running)
-              if (res.running && !res.runId) {
-                setSections(null)
-                setNewsItems([])
-                setNewsUrl(undefined)
-              }
-              if (res.status) setStatus(res.status)
-              if (res.error) setError(res.error)
-              if (res.report) setReportContent(res.report)
-              if (res.logs) setLogs(res.logs)
-              if (!res.running && res.runId) {
+            if (res.running && !res.runId) {
+              setSections(null)
+              setNewsItems([])
+              setNewsUrl(undefined)
+            }
+            if (res.status) setStatus(res.status)
+            if (res.error) setError(res.error)
+            if (res.report) setReportContent(res.report)
+            if (res.logs) setLogs(res.logs)
+            if (!res.running && res.runId) {
                 setHistory((prev) => [{ runId: res.runId!, reportUrl: res.artifacts?.reportUrl, when: Date.now() }, ...prev].slice(0, 20))
                 setConsoleUrl(res.artifacts?.consoleUrl)
                 setLlmCallsUrl(res.artifacts?.llmCallsUrl)
                 setNewsUrl(res.artifacts?.newsUrl)
                 if (res.sections) {
                   setSections(res.sections || {})
+                  const s = res.sections || {}
+                  setContextMeta({
+                    ticker: s.ticker || contextMeta.ticker,
+                    model: s.model || contextMeta.model,
+                    source: s.source || contextMeta.source,
+                    company: s.company_name || contextMeta.company,
+                  })
                   if (Array.isArray(res.sections.news)) setNewsItems(res.sections.news)
                 } else {
                   setSections({})
-                }
               }
-            }}
-          />
-        </div>
+            }
+          }}
+          onContextChange={(meta) => setContextMeta((prev) => ({
+            ticker: meta.ticker || prev.ticker,
+            model: meta.model || prev.model,
+            source: meta.source || prev.source,
+            company: prev.company,
+          }))}
+        />
       }
       right={
-        <div className="container">
-          <div className="workspace-card" style={{ marginBottom: 16 }}>
-            <div className="section-title">執行狀態</div>
-            <div className="status">
-              <span className={`dot ${running ? 'running' : (error ? 'error' : 'idle')}`}></span>
-              <span>{running ? '執行中' : (error ? '發生錯誤' : '待命')}</span>
-              {status && <span className="muted">{status}</span>}
+        <div className="container vertical-flow">
+          <div className="workspace-card status-card">
+            <div>
+              <div className="eyebrow">執行狀態</div>
+              <h3>{running ? '代理人正在執行' : (error ? '需要注意' : '待命中')}</h3>
+              <p className="muted" style={{ marginTop: 6 }}>{status || (running ? '瀏覽器代理人正在收集資料…' : '尚未啟動任何任務。')}</p>
+              {error && !running && (<div className="form-note warning" style={{ marginTop: 8 }}>{error}</div>)}
+            </div>
+            <div className={`status-chip ${running ? 'running' : (error ? 'error' : 'idle')}`}>
+              <span className="chip-dot" />
+              {running ? 'Executing' : (error ? 'Error' : 'Idle')}
             </div>
           </div>
 
           <div className="workspace-card">
             <div className="section-title">分析結果</div>
+            <div className="analysis-meta">
+              <div className="meta-block">
+                <div className="label">Ticker</div>
+                <div className="value">{activeTicker || '—'}</div>
+              </div>
+              <div className="meta-block">
+                <div className="label">Company</div>
+                <div className="value ellipsis" title={activeCompany}>{activeCompany || '—'}</div>
+              </div>
+              <div className="meta-block">
+                <div className="label">Model</div>
+                <div className="value">{activeModel || '—'}</div>
+              </div>
+              <div className="meta-block">
+                <div className="label">Source</div>
+                <div className="value ellipsis" title={activeSource}>{activeSource || '尚未啟動'}</div>
+              </div>
+            </div>
             <div className="tabs">
               {(['Report','News','Logs','History'] as const).map((t) => (
                 <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
@@ -109,10 +144,12 @@ export const App: React.FC = () => {
             </div>
             <div className="tab-panel">
               {tab === 'Report' && (
-                <ArtifactViewer sections={sections} reportContent={reportContent} newsItems={newsItems} />
+                <ArtifactViewer sections={sections} reportContent={reportContent} />
               )}
               {tab === 'News' && (
-                <NewsViewer sections={sections} newsItems={newsItems} />
+                <ErrorBoundary>
+                  <NewsViewer sections={sections} newsItems={Array.isArray(newsItems) ? newsItems : []} />
+                </ErrorBoundary>
               )}
               {tab === 'Logs' && (
                 <LogViewer logs={logs} consoleUrl={consoleUrl} llmCallsUrl={llmCallsUrl} />
@@ -135,7 +172,6 @@ export const App: React.FC = () => {
                         {open && (
                           <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
                             <div className="kv"><div className="k">Report</div><div>{h.reportUrl ? <a href={h.reportUrl} target="_blank" rel="noreferrer">開啟報告</a> : <span className="muted">-</span>}</div></div>
-                            
                             <div className="kv"><div className="k">時間</div><div>{new Date(h.when).toLocaleString()}</div></div>
                           </div>
                         )}
@@ -145,6 +181,29 @@ export const App: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="workspace-card quick-card">
+            <div className="eyebrow">最近執行</div>
+            <h4 style={{ margin: '6px 0 12px' }}>Recent Runs</h4>
+            {history.length === 0 ? (
+              <div className="muted">尚無紀錄</div>
+            ) : (
+              <ul className="recent-list">
+                {history.slice(0, 4).map((h) => (
+                  <li key={`recent-${h.runId}`}>
+                    <div>
+                      <strong>{h.runId.slice(0, 8)}</strong>
+                      <div className="muted" style={{ fontSize: 12 }}>{new Date(h.when).toLocaleTimeString()}</div>
+                    </div>
+                    <div>
+                      {h.reportUrl ? <a href={h.reportUrl} target="_blank" rel="noreferrer">報告</a> : <span className="muted">-</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button className="btn-secondary" style={{ marginTop: 10 }} onClick={() => setTab('History')}>檢視全部</button>
           </div>
         </div>
       }

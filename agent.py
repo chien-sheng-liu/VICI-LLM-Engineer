@@ -934,11 +934,22 @@ def run(args: AgentArgs) -> Dict[str, Any]:
 
     # Fetch a short price series for sparkline via finance_agent if available
     price_series: List[float] = []
+    high_series: List[float] = []
+    low_series: List[float] = []
     try:
         if finance_agent and hasattr(finance_agent, 'fetch_yfinance_series'):
             yfs = finance_agent.fetch_yfinance_series(args.ticker)
-            if isinstance(yfs, dict) and isinstance(yfs.get('series'), dict) and isinstance(yfs['series'].get('close'), list):
-                price_series = [float(x) for x in yfs['series']['close']]
+            if isinstance(yfs, dict) and isinstance(yfs.get('series'), dict):
+                if isinstance(yfs['series'].get('close'), list):
+                    price_series = [float(x) for x in yfs['series']['close']]
+                if isinstance(yfs['series'].get('high'), list):
+                    high_series = [float(x) for x in yfs['series']['high']]
+                if isinstance(yfs['series'].get('low'), list):
+                    low_series = [float(x) for x in yfs['series']['low']]
+                if yfs['series'].get('prev_day_high') is not None:
+                    snapshot_kpis['prev_day_high'] = yfs['series'].get('prev_day_high')
+                if yfs['series'].get('prev_day_low') is not None:
+                    snapshot_kpis['prev_day_low'] = yfs['series'].get('prev_day_low')
     except Exception:
         pass
 
@@ -1301,11 +1312,13 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     trader_additional: List[str] = []
     try:
         if trader_agent and price_series:
-            tjson = trader_agent.compute_signals(price_series, snapshot_kpis)
+            tjson = trader_agent.compute_signals(price_series, snapshot_kpis, high_series or None, low_series or None)
             if isinstance(tjson, dict):
                 trader_signals = tjson.get('signals')
                 if isinstance(tjson.get('insights'), list):
                     trader_additional = [str(x) for x in tjson['insights'] if x]
+                if isinstance(tjson.get('alerts'), list):
+                    snapshot_kpis['key_alerts'] = tjson['alerts']
     except Exception:
         trader_signals = None
 
@@ -1316,6 +1329,58 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             polished_trader = (polished_trader or "") + ("\n" + extra if extra else "")
         except Exception:
             pass
+
+    # 3f-4. Integrate trader signals into Sentiment/Surprise via LLM
+    try:
+        if trader_signals:
+            s2s = time.perf_counter()
+            parts: list[str] = []
+            comp = trader_signals.get('composite_score')
+            if isinstance(comp, (int, float)):
+                parts.append(f"總評{int(comp)}/5")
+            for key,label in [
+                ('trend_score','趨勢'),('momentum_score','動能'),('volume_score','量能')
+            ]:
+                v = trader_signals.get(key)
+                if isinstance(v,(int,float)):
+                    parts.append(f"{label}{float(v):.2f}")
+            for key,label in [
+                ('rsi14','RSI'),('macd_hist','MACD柱體'),('volatility_pct','波動%'),('volume_ratio','量能比')
+            ]:
+                v = trader_signals.get(key)
+                if isinstance(v,(int,float)):
+                    if key=='volatility_pct':
+                        parts.append(f"{label}{float(v):.2f}%")
+                    elif key=='volume_ratio':
+                        parts.append(f"{label}{float(v):.2f}x")
+                    else:
+                        parts.append(f"{label}{float(v):.2f}")
+            alerts = []
+            ka = snapshot_kpis.get('key_alerts')
+            if isinstance(ka, list):
+                alerts = [str(x) for x in ka if x][:3]
+            tctx = "；".join([p for p in parts if p]) + (f"；提醒：{'、'.join(alerts)}" if alerts else "")
+            sent2 = _call_gateway(
+                args.gateway,
+                messages + [{"role":"user","content": (
+                    "結合以下交易員技術指標（總評/分數/RSI/MACD/波動/量能比與關鍵位提醒）與前述新聞/即時指標，"
+                    "請在160-220字內輸出『情緒與驚喜』繁體中文總結，包含：1) 當前情緒與主要驅動、2) 技術面重點與可能觸發、"
+                    "3) 風險與無效條件、4) 建議觀測項（無下單指令、無保證語句）。\n指標：" + tctx
+                )}],
+                args.model,
+                args.timeout_s,
+                args.dry_run,
+                category="sentiment_trader",
+                llm_log_path=llm_log_path,
+                api_key=args.openai_api_key,
+            )
+            steps.append({"name":"llm_sentiment_trader","latency_ms": int((time.perf_counter()-s2s)*1000), "request_id": sent2.get("request_id")})
+            # Override sentiment with integrated one (fallback if empty)
+            _sent_text = sent2.get("text")
+            if isinstance(_sent_text, str) and _sent_text.strip():
+                polished_sent = _polish_llm_text(_sent_text, fallback_sentiment)
+    except Exception:
+        pass
 
     # 3g. Finance/quant analysis based on news + KPIs
     fin_json: Dict[str, Any] | None = None
@@ -1440,6 +1505,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         "events_struct": events_struct,
         "sentiment": polished_sent,
         "trader_insights": polished_trader,
+        "trader_insights_list": trader_additional,
         "news_reports": {"summary": news_summary, "insights": news_insights},
         "news_micro": micro_items,
         "fin_analysis": fin_json,
@@ -1452,11 +1518,15 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         "finance_basic": snapshot_fin,
         "watch_items": watch_items,
         "price_series": price_series,
+        "ticker": args.ticker,
+        "company_name": nav.get("company_name"),
+        "model": args.model,
     }
 
     run_json = {
         "ticker": args.ticker,
         "source": args.source,
+        "company_name": nav.get("company_name"),
         "model": args.model,
         "steps": steps,
         "timings": {"total_ms": int((time.perf_counter() - t0) * 1000)},

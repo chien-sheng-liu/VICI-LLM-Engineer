@@ -36,7 +36,7 @@ def _rsi(values: List[float], period: int = 14) -> Optional[float]:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str, Any]:
+def compute_signals(price_series: List[float], kpis: Dict[str, Any], high_series: List[float] | None = None, low_series: List[float] | None = None) -> Dict[str, Any]:
     signals: Dict[str, Any] = {}
     insights: List[str] = []
     if not price_series or len(price_series) < 5:
@@ -54,12 +54,15 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
     macd = None
     macd_sig = None
     macd_hist = None
+    macd_hist_prev = None
     if len(ema12) == len(closes) and len(ema26) == len(closes):
         macd_line = [a - b for a, b in zip(ema12, ema26)]
         sig_line = _ema(macd_line, 9)
         macd = macd_line[-1]
         macd_sig = sig_line[-1]
         macd_hist = macd - macd_sig
+        if len(macd_line) >= 2 and len(sig_line) >= 2:
+            macd_hist_prev = macd_line[-2] - sig_line[-2]
     rsi14 = _rsi(closes, 14)
 
     # Volatility (simple stdev of daily returns)
@@ -83,6 +86,18 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
     if isinstance(volume, (int, float)) and isinstance(avg_vol, (int, float)) and avg_vol > 0:
         vol_ratio = float(volume) / float(avg_vol)
 
+    # Bollinger Bands (20, 2std)
+    bb_upper = None
+    bb_lower = None
+    if len(closes) >= 20 and sma20 is not None:
+        try:
+            import statistics
+            std20 = statistics.pstdev(closes[-20:])
+            bb_upper = sma20 + 2 * std20
+            bb_lower = sma20 - 2 * std20
+        except Exception:
+            pass
+
     signals.update({
         "price": price,
         "sma5": sma5,
@@ -93,6 +108,8 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
         "macd_hist": macd_hist,
         "volatility_pct": vol,
         "volume_ratio": vol_ratio,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
     })
 
     # Insights
@@ -101,6 +118,14 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
             insights.append("短均線高於長均線，趨勢偏多（SMA5>SMA20）")
         elif sma5 < sma20:
             insights.append("短均線低於長均線，趨勢偏空（SMA5<SMA20）")
+        # Golden/Dead cross detection（簡化）
+        if len(closes) >= 21:
+            sma5_prev = sum(closes[-6:-1]) / 5.0
+            sma20_prev = sum(closes[-21:-1]) / 20.0
+            if sma5_prev <= sma20_prev and sma5 > sma20:
+                insights.append("剛出現黃金交叉（SMA5 上穿 SMA20），留意量能是否配合")
+            if sma5_prev >= sma20_prev and sma5 < sma20:
+                insights.append("剛出現死亡交叉（SMA5 下穿 SMA20），需留意反彈無力風險")
     if isinstance(rsi14, (int, float)):
         if rsi14 >= 70:
             insights.append("RSI>70，動能偏強但短線需留意過熱")
@@ -111,6 +136,8 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
             insights.append("MACD 柱體為正，短線動能偏多")
         elif macd_hist < 0:
             insights.append("MACD 柱體為負，短線動能偏空")
+        if isinstance(macd_hist_prev, (int, float)) and ((macd_hist_prev <= 0 and macd_hist > 0) or (macd_hist_prev >= 0 and macd_hist < 0)):
+            insights.append("MACD 柱體剛翻轉，留意趨勢變化點")
     if isinstance(vol_ratio, (int, float)):
         if vol_ratio >= 1.5:
             insights.append(f"量能放大（{vol_ratio:.2f}x 3M），留意趨勢延續/反轉訊號")
@@ -118,6 +145,55 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
             insights.append(f"量能低迷（{vol_ratio:.2f}x 3M），短線波動可能收斂")
     if isinstance(vol, (int, float)):
         insights.append(f"近月波動約 {vol:.2f}%；建議以分段/均倉控管風險")
+
+    # Price vs intraday levels
+    alerts: List[str] = []
+    try:
+        dh = float(kpis.get("day_high")) if kpis.get("day_high") is not None else None
+        dl = float(kpis.get("day_low")) if kpis.get("day_low") is not None else None
+        pc = float(kpis.get("prev_close")) if kpis.get("prev_close") is not None else None
+        pdh = float(kpis.get("prev_day_high")) if kpis.get("prev_day_high") is not None else None
+        pdl = float(kpis.get("prev_day_low")) if kpis.get("prev_day_low") is not None else None
+        if dh and price:
+            dist_high = (dh - price) / dh * 100.0
+            if 0 <= dist_high <= 0.5:
+                alerts.append("接近日內高點")
+                insights.append("價格接近日高，觀察是否站穩並放量")
+        if dl and price:
+            dist_low = (price - dl) / dl * 100.0
+            if 0 <= dist_low <= 0.5:
+                alerts.append("接近日內低點")
+                insights.append("價格接近日低，留意是否跌破造成加速")
+        if pc and price:
+            if price >= pc and sma5 and price >= sma5:
+                insights.append("價格位於昨收與短均線之上，偏向趨勢延續情境")
+            if price < pc and sma5 and price < sma5:
+                insights.append("價格位於昨收與短均線之下，偏向弱勢修正情境")
+        if pdh and price:
+            d = abs(price - pdh) / pdh * 100.0
+            if d <= 0.5:
+                alerts.append("接近昨高")
+        if pdl and price:
+            d = abs(price - pdl) / pdl * 100.0
+            if d <= 0.5:
+                alerts.append("接近昨低")
+        if isinstance(bb_upper, (int, float)) and price:
+            d = abs(price - bb_upper) / bb_upper * 100.0
+            if d <= 0.5:
+                alerts.append("接近布林上軌")
+        if isinstance(bb_lower, (int, float)) and price:
+            d = abs(price - bb_lower) / bb_lower * 100.0
+            if d <= 0.5:
+                alerts.append("接近布林下軌")
+    except Exception:
+        pass
+
+    # Strategy-style guidance（不含執行指令）
+    if sma5 and sma20 and isinstance(vol, (int, float)):
+        if sma5 > sma20 and (vol is not None and vol <= 2.0):
+            insights.append("趨勢偏多且波動可控，留意拉回靠近SMA5的風險報酬變化")
+        if sma5 < sma20 and (vol is not None and vol >= 2.0):
+            insights.append("趨勢偏空且波動升高，留意反彈至SMA5附近的動能轉弱")
 
     # Scoring breakdown
     trend_score = 0.0
@@ -160,4 +236,4 @@ def compute_signals(price_series: List[float], kpis: Dict[str, Any]) -> Dict[str
     # Confidence heuristic aligns with composite
     signals["confidence"] = composite
 
-    return {"signals": signals, "insights": insights}
+    return {"signals": signals, "insights": insights, "alerts": alerts}

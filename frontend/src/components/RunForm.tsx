@@ -13,7 +13,13 @@ type RunResult = {
   sections?: any
 }
 
-export const RunForm: React.FC<{ running?: boolean; onRun: (result: RunResult) => void }> = ({ running, onRun }) => {
+type RunFormProps = {
+  running?: boolean
+  onRun: (result: RunResult) => void
+  onContextChange?: (meta: { ticker: string; model: string; source: string }) => void
+}
+
+export const RunForm: React.FC<RunFormProps> = ({ running, onRun, onContextChange }) => {
   const [ticker, setTicker] = useState('2330')
   const [yahoo, setYahoo] = useState(true)
   const [source, setSource] = useState('https://tw.stock.yahoo.com/')
@@ -42,6 +48,10 @@ export const RunForm: React.FC<{ running?: boolean; onRun: (result: RunResult) =
     }
     if (gateway) load()
   }, [gateway])
+
+  React.useEffect(() => {
+    onContextChange?.({ ticker, model, source: yahoo ? 'Yahoo TW Flow' : source })
+  }, [ticker, model, source, yahoo, onContextChange])
 
   const run = async () => {
     onRun({ running: true, status: '啟動中…', error: '' })
@@ -106,9 +116,15 @@ export const RunForm: React.FC<{ running?: boolean; onRun: (result: RunResult) =
 
   return (
     <div className="left-stack">
-      <div className="card">
-        <div className="section-title">模型與輸入</div>
-        <div className="form-grid onecol">
+      <section className="card run-card">
+        <div className="form-header">
+          <div>
+            <div className="eyebrow">STEP 01</div>
+            <h3>模型與輸入</h3>
+            <p className="form-sub">挑選模型與來源，決定是否使用 Yahoo TW 自動化流程。</p>
+          </div>
+        </div>
+        <div className="form-body two-cols">
           <div className="field">
             <div className="label">模型</div>
             <select
@@ -131,41 +147,54 @@ export const RunForm: React.FC<{ running?: boolean; onRun: (result: RunResult) =
               <option value="gpt-3.5-turbo">gpt-3.5-turbo（OpenAI）</option>
               <option value="claude-3-haiku">claude-3-haiku（Claude CLI）</option>
             </select>
+            {notice && <div className="form-note warning">{notice}</div>}
           </div>
-          {notice && <div className="muted" style={{ fontSize: 12 }}>{notice}</div>}
           <div className="field">
             <div className="label">台股代號</div>
             <input className="input" value={ticker} onChange={(e) => setTicker(e.target.value.trim())} placeholder="2330" />
+            <div className="form-note">支援 Yahoo TW 流程與一般網址。</div>
           </div>
-          <div className="field">
-            <label className="row" style={{ justifyContent: 'space-between' }}>
-              <span className="label">Yahoo 自動化流程</span>
-              <input className="checkbox" type="checkbox" checked={yahoo} onChange={(e)=> setYahoo(e.target.checked)} />
-            </label>
+          <div className="field full">
+            <div className="toggle-row">
+              <div>
+                <div className="label">Yahoo 自動化</div>
+                <div className="form-note">自動搜尋並導向股票頁，不需自行輸入網址。</div>
+              </div>
+              <label className="toggle">
+                <input type="checkbox" checked={yahoo} onChange={(e)=> setYahoo(e.target.checked)} />
+                <span className="slider" />
+              </label>
+            </div>
           </div>
-          <div className="field">
+          <div className="field full">
             <div className="label">來源網址</div>
             <input className="input" value={source} onChange={(e) => setSource(e.target.value.trim())} placeholder="https://tw.stock.yahoo.com/" disabled={yahoo} />
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="card">
-        <div className="section-title">連線設定</div>
-        <div className="form-grid onecol">
+      <section className="card run-card">
+        <div className="form-header">
+          <div>
+            <div className="eyebrow">STEP 02</div>
+            <h3>連線設定</h3>
+            <p className="form-sub">指定要連線的 Gateway 位置，確保後端已啟動。</p>
+          </div>
+        </div>
+        <div className="form-body">
           <div className="field">
             <div className="label">Gateway URL</div>
             <input className="input" value={gateway} onChange={(e) => setGateway(e.target.value.trim())} placeholder="http://localhost:8000" />
           </div>
-          <button className="btn" onClick={run} disabled={!!running || !gateway || !ticker || !model}>
-            {running ? (<span className="row"><span className="spinner" /> 我要執行分析…</span>) : '執行分析'}
+          <button className="btn run-btn" onClick={run} disabled={!!running || !gateway || !ticker || !model}>
+            {running ? (<span className="row"><span className="spinner" /> 執行中…</span>) : '開始研究'}
           </button>
         </div>
-      </div>
+      </section>
 
-      <div className="muted" style={{ fontSize: 12 }}>
-        - 模型可替換（含 Claude CLI 模擬）。<br/>
-        - 啟用 Yahoo 自動化時，系統會自動開啟 Yahoo 並搜尋代號。
+      <div className="form-note muted">
+        • 模型可隨時更換（含 Claude CLI 模擬）。<br/>
+        • 啟用 Yahoo 自動化時會自動開啟 Yahoo 並搜尋代號。
       </div>
     </div>
   )

@@ -69,7 +69,7 @@ Prerequisites: Python 3.11+, pip; optional Node 18+ for frontend.
     - One-command showcase:
         make showcase   # 先啟動 backend，再執行此指令即可跑完整流程
 
-5) Docker (backend + frontend)
+6) Docker (backend + frontend)
 
     # Requires Docker Desktop (or a compatible daemon) running
     make up           # build and start both services
@@ -146,6 +146,14 @@ Set Gateway URL in the left panel (default `http://localhost:8000`).
 - API key 由後端 `.env` 提供，前端無需輸入。
 Click Run to trigger a backend run and view the structured report、screenshots、and logs.
 
+Housekeeping
+------------
+
+- Tracked artifacts and caches removed: `.idea/`, `.DS_Store`, `__pycache__/`, `backend/runs/`.
+- `.gitignore` now ignores: `runs/`, `backend/runs/`, Python caches, Node `node_modules/`, Vite `dist/`, logs, PDFs/zips, editor folders, and `.env`.
+- Keep `.env.example` in version control; copy to `.env` locally for configuration.
+- Runtime outputs are always written under per-run directories inside `runs/` and are served at `/runs/{run_id}/...`.
+
 Troubleshooting
 ---------------
 
@@ -206,16 +214,26 @@ Data Sources
 Why is `agent.py` at repo root?
 - The backend runner dynamically loads root `agent.py` as the assignment requires a standalone CLI entry. Sub‑agents live in `agents/` to keep the orchestrator thin and maintainable.
 
-- UI Mapping
+UI Mapping
 -----------
 
-- Report（財務分析頁）
-  - 財務分析（量化視角）— 由 finance_agent.analyze_financials 產出之 thesis/驅動/風險/部位/觀測/期間與預期波動/信心。
-  - KPI 卡、結構化事件 / 指引 / 風險（由 news_agent 依每則新聞摘要建立/強化）、情緒與觀測清單。
+- Report（財務/交易員頁）
+  - 財務分析（量化視角）：thesis、drivers、risks、metrics_to_watch、positioning、timeframe、expected_move_pct、confidence。
+  - KPI 卡與基本財務（價格/OHLC/量、市值、PE/PB、殖利率）。
+  - 交易員指標（trend/momentum/volume/composite 等）與觀測清單。
+  - 不顯示新聞清單、事件列表、或整體新聞情緒（這些移至 News）。
 
 - News（新聞頁）
-  - 每則新聞以展開方式呈現：標題連結、1–2 句摘要、情緒/類型/情緒分數/信心。
-  - 來源清單與來源建議（MOPS/IR/交易所公告）。
+  - 新聞概覽：情緒分佈、來源類別、財務關鍵字、代表新聞。
+  - 逐則新聞：標題連結、1–2 句摘要、情緒/類型/情緒分數/信心、KPI 影響徽章。
+  - 不顯示 KPI/估值卡或交易員指標（避免與 Report 重疊）。
+
+- Trader HUD（視覺節奏）
+  1. Trade Verdict — 交易結論＋Confidence/Timeframe/Expected Move/Composite。
+  2. Market Structure — KPI + Profitability Snapshot，快速判讀基本面。
+  3. Playbook — Thesis/Drivers/Risks/Positioning/Watch Metrics。
+  4. Flow & Technicals — Trend/Momentum/Volume/Volatility 與關鍵價位。
+  5. Radar/Triggers — 觀測清單對應指標/檢核動作。
 
 
 Makefile Targets
