@@ -144,6 +144,7 @@ export const RunForm: React.FC<RunFormProps> = ({ running, onRun, onContextChang
                 setModel(v)
               }}
             >
+              <option value="mock-01">mock-01（Mock Provider）</option>
               <option value="gpt-3.5-turbo">gpt-3.5-turbo（OpenAI）</option>
               <option value="claude-3-haiku">claude-3-haiku（Claude CLI）</option>
             </select>

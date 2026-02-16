@@ -62,8 +62,39 @@ export const App: React.FC = () => {
     load()
   }, [newsUrl, sections])
 
+  const heroHeader = (
+    <div className="hero-header">
+      <div className="hero-copy">
+        <p className="eyebrow">操作指南</p>
+        <h1>完成 STEP 01 / STEP 02，按下「開始研究」即可啟動研究流程</h1>
+        <p>系統會自動觸發瀏覽器代理人蒐集資料，結束後會同步更新 Analysis、Report、News 與 History。</p>
+      </div>
+      <div className="hero-status">
+        <div className={`status-chip large ${running ? 'running' : (error ? 'error' : 'idle')}`}>
+          <span className="chip-dot" />
+          {running ? '代理人執行中' : (error ? `需要注意：${error}` : (status || '待命中'))}
+        </div>
+        <div className="hero-meta-grid">
+          <div>
+            <div className="label">Ticker</div>
+            <div className="value">{activeTicker}</div>
+          </div>
+          <div>
+            <div className="label">Model</div>
+            <div className="value">{activeModel}</div>
+          </div>
+          <div>
+            <div className="label">Source</div>
+            <div className="value ellipsis" title={activeSource}>{activeSource}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <>
+    {heroHeader}
     <Layout
       left={
         <RunForm
@@ -110,19 +141,6 @@ export const App: React.FC = () => {
       }
       right={
         <div className="container vertical-flow">
-          <div className="workspace-card status-card">
-            <div>
-              <div className="eyebrow">執行狀態</div>
-              <h3>{running ? '代理人正在執行' : (error ? '需要注意' : '待命中')}</h3>
-              <p className="muted" style={{ marginTop: 6 }}>{status || (running ? '瀏覽器代理人正在收集資料…' : '尚未啟動任何任務。')}</p>
-              {error && !running && (<div className="form-note warning" style={{ marginTop: 8 }}>{error}</div>)}
-            </div>
-            <div className={`status-chip ${running ? 'running' : (error ? 'error' : 'idle')}`}>
-              <span className="chip-dot" />
-              {running ? 'Executing' : (error ? 'Error' : 'Idle')}
-            </div>
-          </div>
-
           {analysisUnlocked ? (
             <>
               <div className="workspace-card">
@@ -201,28 +219,29 @@ export const App: React.FC = () => {
                 )}
               </div>
 
-              <div className="workspace-card quick-card">
-                <div className="eyebrow">最近執行</div>
-                <h4 style={{ margin: '6px 0 12px' }}>Recent Runs</h4>
-                {history.length === 0 ? (
-                  <div className="muted">尚無紀錄</div>
-                ) : (
-                  <ul className="recent-list">
-                    {history.slice(0, 4).map((h) => (
-                      <li key={`recent-${h.runId}`}>
-                        <div>
-                          <strong>{h.runId.slice(0, 8)}</strong>
-                          <div className="muted" style={{ fontSize: 12 }}>{new Date(h.when).toLocaleTimeString()}</div>
-                        </div>
-                        <div>
-                          {h.reportUrl ? <a href={h.reportUrl} target="_blank" rel="noreferrer">報告</a> : <span className="muted">-</span>}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <button className="btn-secondary" style={{ marginTop: 10 }} onClick={() => setTab('History')}>檢視全部</button>
-              </div>
+              <details className="recent-accordion">
+                <summary>最近執行紀錄</summary>
+                <div className="recent-panel">
+                  {history.length === 0 ? (
+                    <div className="muted">尚無紀錄</div>
+                  ) : (
+                    <ul className="recent-list">
+                      {history.slice(0, 4).map((h) => (
+                        <li key={`recent-${h.runId}`}>
+                          <div>
+                            <strong>{h.runId.slice(0, 8)}</strong>
+                            <div className="muted" style={{ fontSize: 12 }}>{new Date(h.when).toLocaleTimeString()}</div>
+                          </div>
+                          <div>
+                            {h.reportUrl ? <a href={h.reportUrl} target="_blank" rel="noreferrer">報告</a> : <span className="muted">-</span>}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button className="btn-secondary" style={{ marginTop: 10 }} onClick={() => setTab('History')}>檢視全部</button>
+                </div>
+              </details>
             </>
           ) : (
             <div className="workspace-card placeholder">
