@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-import os
 
 from .config import GatewayConfig, model_to_provider
 from .logging_utils import log_event

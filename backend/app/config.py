@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import List, Set
+from typing import Set
 
 
 @dataclass(frozen=True)
@@ -72,4 +72,3 @@ def model_to_provider(model: str) -> str:
     if m.startswith("gpt") or m.startswith("o"):
         return "openai"
     return "mock"
-
