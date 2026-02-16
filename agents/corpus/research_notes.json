@@ -1,0 +1,17 @@
+[
+  {
+    "title": "Semiconductor Cycle Watch",
+    "tags": ["semi", "inventory", "pricing"],
+    "content": "Track wafer starts, foundry utilization, and ASP guidance. Focus on hyperscaler capex and AI accelerator mix for upside catalysts."
+  },
+  {
+    "title": "Dividend Cushion Playbook",
+    "tags": ["income", "dividend", "fx"],
+    "content": "High-yield defensives require FX hedging rules. Monitor payout ratio, currency drift, and upcoming board meetings for de-risking signals."
+  },
+  {
+    "title": "Momentum and Liquidity Stress Checklist",
+    "tags": ["momentum", "liquidity", "a/b test"],
+    "content": "Pair short-term momentum triggers with liquidity heatmaps. A/B test breakout rules across 20-day windows using offline replay before pushing to prod."
+  }
+]

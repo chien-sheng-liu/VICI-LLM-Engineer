@@ -37,6 +37,7 @@ try:
     from agents.news_agent import NewsAgent
     from agents.yfinance_agent import YFinanceAgent
     from agents.report_agent import ReportAgent
+    from agents.rag_agent import RAGAgent
     from agents import trader_agent
     from agents.data_sources import fetch_yfinance_data
     from agents.scoring import combine_confidence
@@ -45,6 +46,7 @@ except Exception:
     NewsAgent = None  # type: ignore
     YFinanceAgent = None  # type: ignore
     ReportAgent = None  # type: ignore
+    RAGAgent = None  # type: ignore
     trader_agent = None  # type: ignore
     fetch_yfinance_data = None  # type: ignore
 
@@ -974,6 +976,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     news_client = NewsAgent(call_gw) if NewsAgent else None
     finance_client = FinanceAgent(call_gw) if FinanceAgent else None
     report_client = ReportAgent(call_gw) if ReportAgent else None
+    rag_client = RAGAgent() if 'RAGAgent' in globals() and RAGAgent else None
     yfinance_client = YFinanceAgent() if YFinanceAgent else None
 
     def _as_list(val: Any) -> List[Any]:
@@ -1510,6 +1513,14 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             ],
         )
     ) or "代理人尚未提供完整分析。"
+    rag_notes: List[Dict[str, Any]] = []
+    if rag_client:
+        query = " ".join(filter(None, [args.ticker, nav.get('company_name'), news_summary, polished_trader]))
+        rag_notes = rag_client.retrieve(query.strip(), top_k=2)
+        if rag_notes:
+            fallback_analysis += "\n\n## 研究筆記建議\n" + "\n".join([
+                f"- {note.get('title')}: {note.get('content')}" for note in rag_notes
+            ])
     analysis_report = fallback_analysis
     report_req_id: Optional[str] = None
     try:
@@ -1635,6 +1646,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             "volume": trader_signals.get('volume_score') if trader_signals else None,
             "volatility_pct": trader_signals.get('volatility_pct') if trader_signals else None,
         },
+        "rag_notes": rag_notes,
     }
 
     report_lines = [

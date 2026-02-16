@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 # Minimal Claude CLI wrapper using Anthropic Messages API.
-# Reads a prompt from stdin and prints the model's text output.
-# Requires: curl
-# Env: ANTHROPIC_API_KEY, optional GATEWAY_CLAUDE_MODEL (default: claude-3-haiku)
-
 set -euo pipefail
 
 MODEL="${GATEWAY_CLAUDE_MODEL:-claude-3-haiku}"
 TEMP="0.2"
 MAXTOK="256"
 
-# Parse minimal flags: -m <model> -t <temp> -M <max_tokens>
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -m) MODEL="$2"; shift 2;;
@@ -46,7 +41,6 @@ RESP=$(curl -sS -X POST \
   https://api.anthropic.com/v1/messages \
   -d "${PAYLOAD}")
 
-# Extract first text block
 echo "$RESP" | python3 - <<'PY'
 import sys, json
 data = json.loads(sys.stdin.read())
@@ -59,4 +53,3 @@ if isinstance(content, list) and content:
             break
 print(out.strip())
 PY
-

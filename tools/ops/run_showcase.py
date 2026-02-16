@@ -38,7 +38,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         run_id = r.json()["run_id"]
         print(f"Run started: {run_id}")
 
-        # poll
         for _ in range(120):
             time.sleep(0.5)
             s = client.get(f"{status_url}/{run_id}")
@@ -46,7 +45,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             data = s.json()
             if data["status"] in ("completed", "error"):
                 print(json.dumps(data, indent=2))
-                # friendly summary
                 artifacts = data.get("artifacts", {})
                 print("Artifacts:")
                 print(f"  Report:  {artifacts.get('report_url')}")

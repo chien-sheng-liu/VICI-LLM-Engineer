@@ -21,6 +21,7 @@ export const AnalysisViewer: React.FC<Props> = ({ sections }) => {
   const watchFocus = asArray(digest.watch_focus)
   const catalysts = asArray(digest.catalysts)
   const newsSummary = digest.news_summary || ''
+  const ragNotes = asArray(digest.rag_notes)
 
   const signalCards = [
     { label: 'Trend', value: traderSignals.trend },
@@ -119,6 +120,21 @@ export const AnalysisViewer: React.FC<Props> = ({ sections }) => {
                 <strong>{item.metric || item.label || `Item ${idx + 1}`}</strong>
                 {item.rationale && <span className="muted"> — {item.rationale}</span>}
                 {item.suggested_check && <div className="muted small">建議檢核：{item.suggested_check}</div>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {ragNotes.length > 0 && (
+        <section className="report-panel">
+          <div className="panel-title">Research Library</div>
+          <ul className="analysis-list">
+            {ragNotes.map((item: any, idx: number) => (
+              <li key={`rag-${idx}`}>
+                <strong>{item.title}</strong>
+                {item.content && <span className="muted"> — {item.content}</span>}
+                {item.tags && <div className="muted small">Tags: {(item.tags || []).join(', ')}</div>}
               </li>
             ))}
           </ul>

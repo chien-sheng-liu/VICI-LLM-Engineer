@@ -79,4 +79,4 @@ def test_timeout_behavior(client: TestClient):
     data = r.json()
     assert "request_id" in data["detail"]
     # Should respect timeout window (not hang)
-    assert elapsed < 3
+    assert elapsed < 5

@@ -17,9 +17,9 @@ class MockProvider(Provider):
     ) -> Tuple[str, Dict[str, int], Dict[str, Any]]:
         prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
-        # Simulate a timeout if requested
+        # Simulate a timeout immediately if requested
         if "TIMEOUT" in prompt:
-            await asyncio.sleep(10_000)  # effectively ensures timeout by caller
+            raise asyncio.TimeoutError("mock timeout trigger")
 
         # Simulate a transient error once per request id token embedded in prompt
         # Token format: REQ:<uuid>

@@ -206,8 +206,36 @@ Agents Architecture
 - **YFinance Agent** (`agents/yfinance_agent.py`)
   - Single entry point for Yahoo Finance data: snapshot KPIs, intraday stats, price series, and Chinese company-name extraction. Provides deterministic empty payloads when yfinance is unavailable to keep dry-run reproducible.
 
+- **RAG Agent** (`agents/rag_agent.py`)
+  - Lightweight retrieval over curated research notes. Supplies additional catalysts and playbook references to the Analysis tab so researchers have a knowledge base without leaving the app.
+
 - Scoring (`agents/scoring.py`)
   - `combine_confidence` → 將 LLM confidence 與啟發式（含數字/百分比、來源可信度）合併為 1–5 分。
+
+Experimentation & JD Alignment
+------------------------------
+
+- **Signal → Backtest → Deploy loop**: `tools/backtesting/backtest_runner.py` demonstrates offline evaluation of strategy variants (momentum vs mean reversion) using reproducible price series. Swap in real `runs/<id>/run_logs` for heavier experiments and stitch into A/B workflows.
+- **AI Agents + Tooling**: The orchestrator wires News/Finance/Trader/Report/RAG/YFinance agents, covering RAG, tool invocation, and task planning to accelerate strategy research (matching the JD’s “Design and build AI agents”).
+- **Prompt Engineering hooks**: All LLM calls share `_call_gateway`, so adjusting prompts or routing to MoE/LoRA endpoints happens centrally (environment-driven provider selection). ReportAgent composes multi-agent context into a single prompt, demonstrating prompt-engineering best practices.
+- **Financial-text alignment**: NewsAgent + FinanceAgent specialize on financial text (news, KPIs, guidance). Swapping the gateway provider to a fine-tuned SFT/DPO model is a one-line config change, and the structured schema ensures sentiment/event comprehension.
+- **MLOps**: Containerization (Dockerfiles + docker-compose), CI/CD (GitHub Actions for test/build/lint), and artifact/version logging (per-run `run.json`, checksums, llm_calls) satisfy model/version traceability.
+- **Frontier research ready**: RAGAgent’s corpus is JSON-driven; append new notes or research digests to propagate new techniques instantly. README + AGENTS.md document the architecture so sharing/tech talks stay grounded.
+
+Backtesting CLI
+---------------
+
+Run a quick offline test of tradable signals:
+
+    python tools/backtesting/backtest_runner.py
+
+Swap `--data` to point at your own price history. Integrate this script in automated experiments or hook into CI for regression-style monitoring.
+
+Mockups & Documentation
+-----------------------
+
+- `docs/mockups/model_output.md` stores narrative/visual mockups for interviews and UI planning. Drop additional mock screens or YAML payloads here to keep the repo root tidy.
+- `tools/backtesting/` centralizes experimentation utilities so top-level clutter stays minimal.
 
 Data Sources
 ------------
