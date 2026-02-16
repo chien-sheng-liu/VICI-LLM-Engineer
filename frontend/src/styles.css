@@ -187,3 +187,11 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+.analysis-view { display: flex; flex-direction: column; gap: 20px; }
+.analysis-text { white-space: pre-line; font-size: 16px; line-height: 1.6; }
+.analysis-list { padding-left: 18px; margin: 8px 0 0; color: var(--text); line-height: 1.5; }
+.analysis-feed { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 16px; }
+.analysis-feed article { border: 1px solid var(--border); border-radius: 14px; padding: 14px; background: #fff; box-shadow: 0 8px 30px rgba(10,20,40,0.04); }
+.analysis-feed header { margin-bottom: 6px; display: flex; flex-direction: column; gap: 4px; }
+.analysis-feed .label { font-size: 11px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; }

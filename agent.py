@@ -36,6 +36,7 @@ try:
     from agents.finance_agent import FinanceAgent
     from agents.news_agent import NewsAgent
     from agents.yfinance_agent import YFinanceAgent
+    from agents.report_agent import ReportAgent
     from agents import trader_agent
     from agents.data_sources import fetch_yfinance_data
     from agents.scoring import combine_confidence
@@ -43,6 +44,7 @@ except Exception:
     FinanceAgent = None  # type: ignore
     NewsAgent = None  # type: ignore
     YFinanceAgent = None  # type: ignore
+    ReportAgent = None  # type: ignore
     trader_agent = None  # type: ignore
     fetch_yfinance_data = None  # type: ignore
 
@@ -971,7 +973,21 @@ def run(args: AgentArgs) -> Dict[str, Any]:
 
     news_client = NewsAgent(call_gw) if NewsAgent else None
     finance_client = FinanceAgent(call_gw) if FinanceAgent else None
+    report_client = ReportAgent(call_gw) if ReportAgent else None
     yfinance_client = YFinanceAgent() if YFinanceAgent else None
+
+    def _as_list(val: Any) -> List[Any]:
+        return val if isinstance(val, list) else []
+
+    def _top_items(values: List[Any], limit: int = 3) -> List[Any]:
+        out: List[Any] = []
+        for item in values:
+            if item in (None, ""):
+                continue
+            out.append(item)
+            if len(out) >= limit:
+                break
+        return out
 
     # Step 1: browse and capture
     s0 = time.perf_counter()
@@ -1476,6 +1492,55 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     except Exception:
         pass
 
+    # 3f-5. Report agent synthesis
+    watch_list = watch_items if isinstance(watch_items, list) else []
+    news_lines_preview = []
+    for itm in micro_items[:5]:
+        title = str(itm.get('title') or '')[:80]
+        sentiment = itm.get('sentiment') or '中性'
+        news_lines_preview.append(f"{title}｜{sentiment}")
+    fallback_analysis = "\n".join(
+        filter(
+            None,
+            [
+                polished_summary or polished_sent or "代理人尚未提供完整分析。",
+                news_summary and f"新聞摘要：{news_summary}",
+                news_lines_preview and f"重點新聞：{'; '.join(news_lines_preview)}",
+                watch_list and f"觀測指標：{', '.join([str(x.get('metric')) for x in watch_list[:3] if x.get('metric')])}",
+            ],
+        )
+    ) or "代理人尚未提供完整分析。"
+    analysis_report = fallback_analysis
+    report_req_id: Optional[str] = None
+    try:
+        if report_client:
+            s_rep = time.perf_counter()
+            report_resp = report_client.generate(
+                ticker=args.ticker,
+                company=nav.get('company_name'),
+                source=nav.get('url') or args.source,
+                kpis=snapshot_kpis,
+                fin_analysis=fin_json or {},
+                trader_signals=trader_signals,
+                watch_items=watch_list,
+                news_summary=news_summary,
+                news_insights=news_insights or [],
+                news_micro=micro_items,
+                model=args.model,
+                timeout_s=args.timeout_s,
+                dry_run=args.dry_run,
+                api_key=args.openai_api_key,
+            )
+            analysis_report = _polish_llm_text(report_resp.get('text'), fallback_analysis)
+            report_req_id = report_resp.get("request_id")
+            steps.append({
+                "name": "llm_report_agent",
+                "latency_ms": int((time.perf_counter() - s_rep) * 1000),
+                "request_id": report_req_id,
+            })
+    except Exception:
+        pass
+
     # 3g. Finance/quant analysis based on news + KPIs
     fin_json: Dict[str, Any] | None = None
     try:
@@ -1555,6 +1620,23 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             if not fin_json.get(scalar) and y_analysis.get(scalar):
                 fin_json[scalar] = y_analysis.get(scalar)
 
+    analysis_digest = {
+        "thesis": (fin_json or {}).get('thesis') if isinstance(fin_json, dict) else None,
+        "drivers": _top_items(_as_list((fin_json or {}).get('drivers')), 3),
+        "risks": _top_items(_as_list((fin_json or {}).get('risks')), 3),
+        "positioning": _top_items(_as_list((fin_json or {}).get('positioning')), 3),
+        "watch_focus": watch_list[:3],
+        "news_summary": news_summary,
+        "catalysts": _top_items(_as_list(news_insights), 5),
+        "trader_summary": polished_trader,
+        "trader_signals": {
+            "trend": trader_signals.get('trend_score') if trader_signals else None,
+            "momentum": trader_signals.get('momentum_score') if trader_signals else None,
+            "volume": trader_signals.get('volume_score') if trader_signals else None,
+            "volatility_pct": trader_signals.get('volatility_pct') if trader_signals else None,
+        },
+    }
+
     report_lines = [
         f"# 股票研究報告｜{args.ticker}",
         "",
@@ -1633,6 +1715,8 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         "trader_signals": trader_signals,
         "table": table,
         "news": news_items,
+        "analysis_report": analysis_report,
+        "analysis_digest": analysis_digest,
         "source": nav_url,
         "generated_at": _now_iso(),
         "kpis": snapshot_kpis,
@@ -1667,6 +1751,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             llm_bullets.get("request_id"),
             llm_trader.get("request_id"),
             llm_news.get("request_id"),
+            report_req_id,
             *micro_ids,
         ],
         "latency_summary": {

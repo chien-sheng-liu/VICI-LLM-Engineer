@@ -201,6 +201,17 @@ Agents Architecture
   - `analyze_sentiment`、`overview_bullets`、`trader_insights`、`watchlist`。
    - `analyze_financials` → 以新聞摘要 + KPI 產出量化/財務結論（thesis、drivers、risks、positioning、metrics_to_watch、timeframe、expected_move_pct、confidence）。
 
+- Trader Agent (`agents/trader_agent.py`)
+  - 不透過 LLM，改以技術/量化指標（SMA/EMA/MACD/RSI/Bollinger）計算 `trader_signals` 與 `insights`，供 Report 分頁顯示 Flow Snapshot。
+
+- Report Agent (`agents/report_agent.py`)
+  - 結合 News/Finance/Trader/YFinance 資訊，透過 gateway 產生主管級 Markdown 分析，供 Analysis 分頁閱讀。
+  - Digest 亦提供 catalysts/watch focus 等多 Agent 摘要，避免與 Report/News 重複。
+
+- YFinance Agent (`agents/yfinance_agent.py`)
+  - 單一入口存取 Yahoo Finance：snapshot（price/變動/估值/KPI）、intraday KPIs、價格序列、中文公司名稱清理。
+  - 即使無法連網亦會以 deterministic 空資料回傳。
+
 - Scoring (`agents/scoring.py`)
   - `combine_confidence` → 將 LLM confidence 與啟發式（含數字/百分比、來源可信度）合併為 1–5 分。
 

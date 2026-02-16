@@ -4,6 +4,7 @@ import { RunForm } from './components/RunForm'
 import { LogViewer } from './components/LogViewer'
 import { ArtifactViewer } from './components/ArtifactViewer'
 import { NewsViewer } from './components/NewsViewer'
+import { AnalysisViewer } from './components/AnalysisViewer'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 export const App: React.FC = () => {
@@ -12,7 +13,7 @@ export const App: React.FC = () => {
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState<string>('')
   const [error, setError] = useState<string>('')
-  const [tab, setTab] = useState<'Report' | 'News' | 'Logs' | 'History'>('Report')
+  const [tab, setTab] = useState<'Analysis' | 'Report' | 'News' | 'Logs' | 'History'>('Analysis')
   const [history, setHistory] = useState<{ runId: string; reportUrl?: string; when: number }[]>([])
   const [openHistory, setOpenHistory] = useState<Record<string, boolean>>({})
   const [consoleUrl, setConsoleUrl] = useState<string | undefined>(undefined)
@@ -144,16 +145,19 @@ export const App: React.FC = () => {
                     <div className="value ellipsis" title={activeSource}>{activeSource}</div>
                   </div>
                 </div>
-                <div className="tabs">
-                  {(['Report','News','Logs','History'] as const).map((t) => (
-                    <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
-                  ))}
-                </div>
-                {hasResults ? (
-                  <div className="tab-panel">
-                    {tab === 'Report' && (
-                      <ArtifactViewer sections={analysisSections} reportContent={reportContent} />
-                    )}
+            <div className="tabs">
+              {(['Analysis','Report','News','Logs','History'] as const).map((t) => (
+                <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</button>
+              ))}
+            </div>
+            {hasResults ? (
+              <div className="tab-panel">
+                {tab === 'Analysis' && (
+                  <AnalysisViewer sections={analysisSections} />
+                )}
+                {tab === 'Report' && (
+                  <ArtifactViewer sections={analysisSections} reportContent={reportContent} />
+                )}
                     {tab === 'News' && (
                       <ErrorBoundary>
                         <NewsViewer sections={analysisSections} newsItems={Array.isArray(newsItems) ? newsItems : []} />
