@@ -79,10 +79,10 @@ export const App: React.FC = () => {
                 setLlmCallsUrl(res.artifacts?.llmCallsUrl)
                 setNewsUrl(res.artifacts?.newsUrl)
                 if (res.sections) {
-                  setSections(res.sections)
+                  setSections(res.sections || {})
                   if (Array.isArray(res.sections.news)) setNewsItems(res.sections.news)
                 } else {
-                  setSections(null)
+                  setSections({})
                 }
               }
             }}

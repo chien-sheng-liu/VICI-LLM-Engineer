@@ -167,6 +167,7 @@ Environment variables (see `backend/app/config.py` for defaults):
 - `GATEWAY_ALLOWED_MODELS`
 - `AGENT_TIMEOUT_S`
 - `AGENT_MODEL`
+ - `USE_YFINANCE` (optional, 1/true to enable yfinance for OHLC/Volume/basic financials)
 
 
 Observability & Safety
@@ -194,6 +195,13 @@ Agents Architecture
 
 - Scoring (`agents/scoring.py`)
   - `combine_confidence` → 將 LLM confidence 與啟發式（含數字/百分比、來源可信度）合併為 1–5 分。
+
+Data Sources
+------------
+
+- Optional Yahoo Finance via yfinance
+  - `agents/data_sources.py: fetch_yfinance_data(ticker)` enriches KPIs (OHLC/Volume/Market Cap/PE/PB/Dividend Yield) and `finance_basic` (margins/growth/EBITDA/revenue).
+  - Requires network and `yfinance` installed. Enable by setting `USE_YFINANCE=1` in `.env`.
 
 Why is `agent.py` at repo root?
 - The backend runner dynamically loads root `agent.py` as the assignment requires a standalone CLI entry. Sub‑agents live in `agents/` to keep the orchestrator thin and maintainable.

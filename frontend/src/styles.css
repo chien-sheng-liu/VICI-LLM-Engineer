@@ -75,6 +75,26 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter,
 .dot.idle { background: #6b7280; }
 .dot.running { background: var(--primary); }
 .dot.error { background: var(--danger); }
+/* Up/Down coloring */
+.pos { color: var(--success); }
+.neg { color: var(--danger); }
+
+/* Score badge */
+.score-badge {
+  width: 72px; height: 72px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 20px; color: white;
+  border: 2px solid rgba(255,255,255,0.08);
+}
+.score-badge-sm {
+  width: 36px; height: 36px; font-size: 12px; border-width: 1px;
+}
+.score-good { background: linear-gradient(135deg, #10b981, #059669); }
+.score-mid { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.score-poor { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+
+.overview-row { display: grid; grid-template-columns: 90px 1fr; gap: 16px; align-items: center; }
+.ovl-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
 
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px;

@@ -30,11 +30,13 @@ load_dotenv()
 
 # Externalized agent modules
 try:
-    from agents import news_agent, finance_agent
+    from agents import news_agent, finance_agent, trader_agent
+    from agents.data_sources import fetch_yfinance_data
     from agents.scoring import combine_confidence
 except Exception:
     news_agent = None  # type: ignore
     finance_agent = None  # type: ignore
+    trader_agent = None  # type: ignore
     def combine_confidence(llm_conf: Optional[float], news: Dict[str, str]) -> int:  # fallback
         return int(llm_conf or 3)
 
@@ -327,6 +329,75 @@ def _extract_yahoo_snapshot(html: Optional[str], ticker: str) -> Dict[str, Any]:
             table_rows.append({"指標": "52週區間", "數值": summary_detail.get("fiftyTwoWeekRange")})
         if summary_detail.get("regularMarketDayRange"):
             table_rows.append({"指標": "日內區間", "數值": summary_detail.get("regularMarketDayRange")})
+        # OHLC + Volume
+        ohlc = {
+            "open": price.get("regularMarketOpen"),
+            "high": price.get("regularMarketDayHigh"),
+            "low": price.get("regularMarketDayLow"),
+            "prev_close": price.get("regularMarketPreviousClose"),
+        }
+        volume = price.get("regularMarketVolume")
+        avg_vol = summary_detail.get("averageVolume3Month") or summary_detail.get("averageDailyVolume3Month") or price.get("averageDailyVolume3Month")
+        if any(v is not None for v in ohlc.values()):
+            kpis["open"] = ohlc.get("open")
+            kpis["day_high"] = ohlc.get("high")
+            kpis["day_low"] = ohlc.get("low")
+            kpis["prev_close"] = ohlc.get("prev_close")
+        if volume is not None:
+            kpis["volume"] = volume
+        if avg_vol is not None:
+            kpis["avg_volume_3m"] = avg_vol
+        # Basic financials
+        market_cap = (summary_detail.get("marketCap") or price.get("marketCap"))
+        pe_ttm = summary_detail.get("trailingPE")
+        pe_fwd = summary_detail.get("forwardPE")
+        pb = summary_detail.get("priceToBook")
+        div_yield = summary_detail.get("dividendYield")
+        fin_basic: Dict[str, Any] = {}
+        if market_cap is not None:
+            fin_basic["market_cap"] = market_cap
+            kpis["market_cap"] = market_cap
+        if pe_ttm is not None:
+            fin_basic["pe_ttm"] = pe_ttm
+            kpis["pe_ttm"] = pe_ttm
+        if pe_fwd is not None:
+            fin_basic["pe_fwd"] = pe_fwd
+            kpis["pe_fwd"] = pe_fwd
+        if pb is not None:
+            fin_basic["pb"] = pb
+            kpis["pb"] = pb
+        if div_yield is not None:
+            # Convert to % if in fraction
+            try:
+                dy = float(div_yield)
+                fin_basic["dividend_yield_pct"] = dy * 100 if dy < 1 else dy
+                kpis["dividend_yield_pct"] = fin_basic["dividend_yield_pct"]
+            except Exception:
+                pass
+        # FinancialData deep metrics
+        def as_pct(x: Any) -> Optional[float]:
+            try:
+                fx = float(x)
+                return fx * 100 if fx <= 1 else fx
+            except Exception:
+                return None
+        fin_detail: Dict[str, Any] = {}
+        if financial_data.get("totalRevenue") is not None:
+            fin_detail["revenue"] = financial_data.get("totalRevenue")
+        for key_in, key_out in [
+            ("grossMargins", "gross_margin_pct"),
+            ("operatingMargins", "operating_margin_pct"),
+            ("profitMargins", "profit_margin_pct"),
+            ("returnOnEquity", "roe_pct"),
+            ("returnOnAssets", "roa_pct"),
+            ("earningsGrowth", "earnings_growth_pct"),
+            ("revenueGrowth", "revenue_growth_pct"),
+        ]:
+            v = as_pct(financial_data.get(key_in))
+            if v is not None:
+                fin_detail[key_out] = v
+        if financial_data.get("ebitda") is not None:
+            fin_detail["ebitda"] = financial_data.get("ebitda")
         if financial_data.get("targetMeanPrice"):
             table_rows.append({"指標": "法人平均目標價", "數值": str(financial_data.get("targetMeanPrice"))})
             kpis["target_mean_price"] = financial_data.get("targetMeanPrice")
@@ -373,7 +444,7 @@ def _extract_yahoo_snapshot(html: Optional[str], ticker: str) -> Dict[str, Any]:
                         kpis["latest_eps"] = float(val)
                 except Exception:
                     continue
-        return {"text": "\n".join(analysis), "table": table_rows, "kpis": kpis, "name": name}
+        return {"text": "\n".join(analysis), "table": table_rows, "kpis": kpis, "name": name, "financials": {**fin_basic, **fin_detail}}
     except Exception:
         return {}
 
@@ -720,6 +791,7 @@ def _fetch_yahoo_tw(ticker: str, shots_dir: Path, logs_dir: Path, dry_run: bool)
             "snapshot_text": snapshot.get("text"),
             "snapshot_table": snapshot.get("table"),
             "snapshot_kpis": snapshot.get("kpis"),
+            "snapshot_financials": snapshot.get("financials"),
             "company_name": snapshot.get("name"),
             "latency_ms": int((time.perf_counter() - started) * 1000),
         }
@@ -757,6 +829,7 @@ def _fetch_yahoo_tw(ticker: str, shots_dir: Path, logs_dir: Path, dry_run: bool)
             "snapshot_text": snapshot.get("text"),
             "snapshot_table": snapshot.get("table"),
             "snapshot_kpis": snapshot.get("kpis"),
+            "snapshot_financials": snapshot.get("financials"),
             "company_name": snapshot.get("name"),
             "latency_ms": int((time.perf_counter() - started) * 1000),
         }
@@ -831,10 +904,43 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     snapshot_text = nav.get("snapshot_text")
     snapshot_table = nav.get("snapshot_table") or []
     snapshot_kpis = nav.get("snapshot_kpis") or {}
+    snapshot_fin = nav.get("snapshot_financials") or {}
     if snapshot_text:
         evidence = f"{snapshot_text}\n{evidence}" if evidence else snapshot_text
     table = snapshot_table + _extract_table(nav.get("content_html"))
     steps.append({"name": "extract", "latency_ms": int((time.perf_counter() - sE) * 1000)})
+
+    # Optional: enrich KPIs via yfinance when enabled
+    try:
+        import os as _os
+        if 'fetch_yfinance_data' in globals() and _os.getenv('USE_YFINANCE', '0') in ('1','true','TRUE'):
+            yfin = fetch_yfinance_data(args.ticker)
+            if isinstance(yfin, dict):
+                if isinstance(yfin.get('kpis'), dict):
+                    snapshot_kpis.update(yfin['kpis'])
+                if isinstance(yfin.get('finance_basic'), dict):
+                    snapshot_fin.update(yfin['finance_basic'])
+    except Exception:
+        pass
+
+    # Always try finance_agent for open/close even if USE_YFINANCE not set
+    try:
+        if finance_agent and hasattr(finance_agent, 'fetch_yfinance_prices'):
+            yfp = finance_agent.fetch_yfinance_prices(args.ticker)
+            if isinstance(yfp, dict) and isinstance(yfp.get('kpis'), dict):
+                snapshot_kpis.update(yfp['kpis'])
+    except Exception:
+        pass
+
+    # Fetch a short price series for sparkline via finance_agent if available
+    price_series: List[float] = []
+    try:
+        if finance_agent and hasattr(finance_agent, 'fetch_yfinance_series'):
+            yfs = finance_agent.fetch_yfinance_series(args.ticker)
+            if isinstance(yfs, dict) and isinstance(yfs.get('series'), dict) and isinstance(yfs['series'].get('close'), list):
+                price_series = [float(x) for x in yfs['series']['close']]
+    except Exception:
+        pass
 
     # Step 2b: collect news via news_agent
     sN = time.perf_counter()
@@ -923,14 +1029,17 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         else:
             llm_sent = _call_gateway(
                 args.gateway,
-                messages + [{"role": "user", "content": "判斷市場情緒（正向/中性/負向）與驚喜程度（超預期/符合/低於），簡短繁體中文回答。"}],
+                messages + [{"role": "user", "content": (
+                    "請輸出約120字的市場情緒與驚喜判讀（繁體中文），包含：1) 整體情緒與主要驅動、"
+                    "2) 是否出現超預期或低於預期之處、3) 需留意的短線風險與指標。避免下單指令與保證語句。"
+                )}],
                 args.model,
                 args.timeout_s,
-                args.dry_run,
-                category="sentiment",
-                llm_log_path=llm_log_path,
-                api_key=args.openai_api_key,
-            )
+        args.dry_run,
+        category="sentiment",
+        llm_log_path=llm_log_path,
+        api_key=args.openai_api_key,
+    )
     except Exception:
         llm_sent = {"request_id": f"fallback-sent-{uuid.uuid4().hex[:8]}", "text": "中性；近期消息影響待觀察", "latency_ms": 0, "retry_count": 0}
     steps.append({"name": "llm_sentiment", "latency_ms": int((time.perf_counter() - s2a) * 1000), "request_id": llm_sent["request_id"]})
@@ -1070,7 +1179,20 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     if news_titles:
         fallback_events_lines.append(f"- 新聞焦點：{'；'.join(news_titles[:2])}")
     fallback_events = "\n".join(fallback_events_lines)
-    fallback_sentiment = "市場情緒暫視為中性，惟需持續監控產業供需、法人指引與新聞更新。"
+    # Build a richer fallback sentiment text
+    cp = snapshot_kpis.get("change_percent")
+    ch = snapshot_kpis.get("change")
+    rng = None
+    try:
+        if snapshot_kpis.get("day_high") is not None and snapshot_kpis.get("day_low") is not None and snapshot_kpis.get("prev_close"):
+            rng = (float(snapshot_kpis["day_high"]) - float(snapshot_kpis["day_low"])) / float(snapshot_kpis["prev_close"]) * 100.0
+    except Exception:
+        rng = None
+    fallback_sentiment = (
+        f"整體情緒偏{'正向' if (isinstance(cp,(int,float)) and cp>0) else ('負向' if (isinstance(cp,(int,float)) and cp<0) else '中性')}，"
+        f"當日變動 {ch if ch is not None else '-'}{f'（{cp:.2f}%）' if isinstance(cp,(int,float)) else ''}。"
+        f"波動區間約 {rng:.2f}%；" if isinstance(rng,(int,float)) else ""
+    ) + "需關注需求變化、毛利與法人預期，短線留意量能與關鍵技術位。"
     fallback_summary = "可交易重點：評估新聞與即時指標對營收、毛利與資本支出之影響，設定進出策略與風險控管。"
     polished_events = _polish_llm_text(llm_events.get("text"), fallback_events)
     polished_sent = _polish_llm_text(llm_sent.get("text"), fallback_sentiment)
@@ -1174,6 +1296,27 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             {"metric": "毛利率", "rationale": "反映產品組合與成本變動", "suggested_check": "季增/年增 > 50bps", "priority": 2},
             {"metric": "營收YoY", "rationale": "需求回溫與市佔變化", "suggested_check": ">= 10%", "priority": 2},
         ]
+    # 3f-3. Trader agent: compute signals & additional insights
+    trader_signals: Dict[str, Any] | None = None
+    trader_additional: List[str] = []
+    try:
+        if trader_agent and price_series:
+            tjson = trader_agent.compute_signals(price_series, snapshot_kpis)
+            if isinstance(tjson, dict):
+                trader_signals = tjson.get('signals')
+                if isinstance(tjson.get('insights'), list):
+                    trader_additional = [str(x) for x in tjson['insights'] if x]
+    except Exception:
+        trader_signals = None
+
+    # Merge additional trader insights into LLM text
+    if trader_additional:
+        try:
+            extra = "\n".join(["- " + s for s in trader_additional])
+            polished_trader = (polished_trader or "") + ("\n" + extra if extra else "")
+        except Exception:
+            pass
+
     # 3g. Finance/quant analysis based on news + KPIs
     fin_json: Dict[str, Any] | None = None
     try:
@@ -1187,17 +1330,56 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     except Exception:
         fin_json = None
 
+    # Fallback/augmentation for fin_json numbers (timeframe / expected_move_pct / confidence)
+    try:
+        if fin_json is None:
+            fin_json = {}
+        # expected move from recent volatility or intraday range
+        exp_mv = fin_json.get('expected_move_pct')
+        if not isinstance(exp_mv, (int, float)):
+            if price_series and len(price_series) >= 5:
+                import math
+                rets = []
+                for i in range(1, len(price_series)):
+                    p0, p1 = float(price_series[i-1]), float(price_series[i])
+                    if p0 > 0:
+                        rets.append((p1/p0) - 1.0)
+                if rets:
+                    import statistics
+                    vol = statistics.pstdev(rets)
+                    exp_mv = max(0.0, min(20.0, vol * 100.0))
+            if exp_mv is None and snapshot_kpis.get('day_high') and snapshot_kpis.get('day_low') and snapshot_kpis.get('prev_close'):
+                try:
+                    exp_mv = abs((float(snapshot_kpis['day_high']) - float(snapshot_kpis['day_low'])) / float(snapshot_kpis['prev_close']) * 100.0)
+                except Exception:
+                    exp_mv = None
+            if isinstance(exp_mv, (int, float)):
+                fin_json['expected_move_pct'] = round(exp_mv, 2)
+        # timeframe default
+        if not isinstance(fin_json.get('timeframe'), str) or not fin_json.get('timeframe'):
+            fin_json['timeframe'] = '1個月' if price_series and len(price_series) >= 10 else '1週'
+        # confidence from micro items
+        if not isinstance(fin_json.get('confidence'), (int, float)):
+            vals = [m.get('confidence') for m in micro_items if isinstance(m.get('confidence'), (int, float))]
+            if vals:
+                import statistics
+                fin_json['confidence'] = int(round(max(1, min(5, statistics.mean(vals)))))
+            else:
+                fin_json['confidence'] = 3
+    except Exception:
+        pass
+
     report_lines = [
         f"# 股票研究報告｜{args.ticker}",
         "",
         f"來源：{nav_url}",
         "",
         "## 財務分析（量化視角）",
-        (fin_json.get('thesis') if fin_json else '近期新聞與KPI顯示需關注需求、毛利與法人預期變化。'),
-        *( ([""] + ["- 驅動：" + d for d in (fin_json.get('drivers') or [])]) if fin_json and isinstance(fin_json.get('drivers'), list) else []),
-        *( ([""] + ["- 風險：" + r for r in (fin_json.get('risks') or [])]) if fin_json and isinstance(fin_json.get('risks'), list) else []),
-        *( ([""] + ["- 建議部位/策略：" + p for p in (fin_json.get('positioning') or [])]) if fin_json and isinstance(fin_json.get('positioning'), list) else []),
-        *( ([""] + ["- 觀測指標：" + m for m in (fin_json.get('metrics_to_watch') or [])]) if fin_json and isinstance(fin_json.get('metrics_to_watch'), list) else []),
+        ((fin_json.get('thesis') if fin_json else None) or '近期新聞與KPI顯示需關注需求、毛利與法人預期變化。'),
+        *( ([""] + ["- 驅動：" + str(d or '') for d in (fin_json.get('drivers') or [])]) if fin_json and isinstance(fin_json.get('drivers'), list) else []),
+        *( ([""] + ["- 風險：" + str(r or '') for r in (fin_json.get('risks') or [])]) if fin_json and isinstance(fin_json.get('risks'), list) else []),
+        *( ([""] + ["- 建議部位/策略：" + str(p or '') for p in (fin_json.get('positioning') or [])]) if fin_json and isinstance(fin_json.get('positioning'), list) else []),
+        *( ([""] + ["- 觀測指標：" + str(m or '') for m in (fin_json.get('metrics_to_watch') or [])]) if fin_json and isinstance(fin_json.get('metrics_to_watch'), list) else []),
         (f"- 期間：{fin_json.get('timeframe')}｜預期波動：{fin_json.get('expected_move_pct')}%｜信心：{fin_json.get('confidence')}/5" if fin_json else ''),
         "",
         "## 交易員 Insights",
@@ -1205,7 +1387,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         "",
         "## 新聞總結",
         news_summary,
-        *( ([""] + ["- " + x for x in news_insights]) if news_insights else [] ),
+        *( ([""] + ["- " + str(x or '') for x in news_insights]) if news_insights else [] ),
         "",
         "## 快速摘要",
         polished_summary,
@@ -1261,12 +1443,15 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         "news_reports": {"summary": news_summary, "insights": news_insights},
         "news_micro": micro_items,
         "fin_analysis": fin_json,
+        "trader_signals": trader_signals,
         "table": table,
         "news": news_items,
         "source": nav_url,
         "generated_at": _now_iso(),
         "kpis": snapshot_kpis,
+        "finance_basic": snapshot_fin,
         "watch_items": watch_items,
+        "price_series": price_series,
     }
 
     run_json = {
