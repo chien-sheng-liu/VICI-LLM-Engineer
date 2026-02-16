@@ -37,44 +37,41 @@ Repository Layout (Refined)
 Quickstart
 ----------
 
-Prerequisites: Python 3.11+, pip; optional Node 18+ for frontend.
+Prerequisites: Python 3.11+, pip; optional Node 18+ for frontend. All common flows are wrapped in the Makefile so you only need a few commands to stand everything up.
 
-1) Install Python deps
+1. Install backend deps
 
-    make install
+       make install
 
-2) Run tests
+2. Configure environment
 
-    make test
+       cp .env.example .env
+       # Edit .env and set OPENAI_API_KEY=sk-...
 
-3) Configure environment
+3. Run the FastAPI gateway (default http://localhost:8000)
 
-    cp .env.example .env
-    # Edit .env and set OPENAI_API_KEY=sk-...
+       make run-gateway
 
-4) Start gateway (localhost:8000)
+4. Launch the React frontend (hot reload on :5173)
 
-    make run-gateway
+       make run-frontend
 
-5) Trigger an agent run（官方 Yahoo 流程）
+5. Trigger the full Yahoo TW agent demo (headless Playwright, arguments baked in). The Makefile ensures the gateway is reachable first.
 
-    - API flow (backend must be running):
-      - Start backend as above, then:
-        curl -X POST http://localhost:8000/agent/run \
-          -H 'Content-Type: application/json' \
-          -d '{"ticker":"2330","source":"https://tw.stock.yahoo.com/","model":"gpt-3.5-turbo","dry_run":true,"yahoo":true}'
-      - Poll status: curl http://localhost:8000/agent/status/<run_id>
-    - CLI flow:
-        python agent.py --ticker 2330 --source https://tw.stock.yahoo.com/ --gateway http://localhost:8000 --model gpt-3.5-turbo --yahoo
-    - One-command showcase:
-        make showcase   # 先啟動 backend，再執行此指令即可跑完整流程
+       make run-agent-demo     # CLI flow (writes to runs/<timestamp>)
+       make showcase           # Gateway + CLI end-to-end
 
-6) Docker (backend + frontend)
+6. Orchestrate everything via Docker Compose (backend + frontend containers)
 
-    # Requires Docker Desktop (or a compatible daemon) running
-    make up           # build and start both services
-    make docker-logs  # tail logs for both
-    make down         # stop and remove containers
+       make docker-up          # build + start
+       make docker-logs        # tail both services
+       make docker-down        # stop/remove
+
+7. Run the entire test suite
+
+       make test               # executes pytest backend/tests
+
+Manual API usage remains available (POST /agent/run then GET /agent/status/{id}), but the Makefile covers the common development loop.
 
 
 Gateway API
@@ -192,25 +189,22 @@ Agents Architecture
   - Coordinates browse/extract, invokes sub‑agents, generates artifacts, writes run.json.
   - Provides a unified `call_gw` wrapper used by all sub‑agents to call the gateway with consistent timeout/logs.
 
-- News Agent (`agents/news_agent.py`)
-  - `summarize_single_news` → 1–2 句摘要、情緒、分相（market_note）、事件類型、信心分數。
-  - `enrich_or_build_events` → 以每則新聞摘要建立/強化事件清單，去重與摘要去重。
-   - `collect_news` → 整合 Google News + Yahoo 個股新聞，寫入 run_logs/news.json。
+- **News Agent** (`agents/news_agent.py`)
+  - Scrapes Yahoo TW + Google News (dry-run friendly) and persists a deterministic `news.json` for traceability.
+  - Summarizes each article via the gateway with sentiment, event type, market note, and confidence; deduplicates/annotates the events list shown in the UI.
 
-- Finance Agent (`agents/finance_agent.py`)
-  - `analyze_sentiment`、`overview_bullets`、`trader_insights`、`watchlist`。
-   - `analyze_financials` → 以新聞摘要 + KPI 產出量化/財務結論（thesis、drivers、risks、positioning、metrics_to_watch、timeframe、expected_move_pct、confidence）。
+- **Finance Agent** (`agents/finance_agent.py`)
+  - Owns every finance-facing LLM prompt: sentiment surprise, research bullets, trader insights, watchlist generation, KPI impact per news item, and the structured `fin_analysis` JSON.
+  - Operates purely through the gateway; no data scraping, keeping responsibilities clear.
 
-- Trader Agent (`agents/trader_agent.py`)
-  - 不透過 LLM，改以技術/量化指標（SMA/EMA/MACD/RSI/Bollinger）計算 `trader_signals` 與 `insights`，供 Report 分頁顯示 Flow Snapshot。
+- **Trader Agent** (`agents/trader_agent.py`)
+  - Pure-Python technical analysis: EMA/MACD/RSI/Bollinger, volatility, alerts. Feeds `trader_signals` and expert commentary that populate the Report tab’s flow section even when LLMs are offline.
 
-- Report Agent (`agents/report_agent.py`)
-  - 結合 News/Finance/Trader/YFinance 資訊，透過 gateway 產生主管級 Markdown 分析，供 Analysis 分頁閱讀。
-  - Digest 亦提供 catalysts/watch focus 等多 Agent 摘要，避免與 Report/News 重複。
+- **Report Agent** (`agents/report_agent.py`)
+  - Consumes the entire context (KPIs, finance/trader output, news bullets, watchlist) to craft a chief-research-level Markdown narrative plus a digest of catalysts/watch focus for the Analysis tab.
 
-- YFinance Agent (`agents/yfinance_agent.py`)
-  - 單一入口存取 Yahoo Finance：snapshot（price/變動/估值/KPI）、intraday KPIs、價格序列、中文公司名稱清理。
-  - 即使無法連網亦會以 deterministic 空資料回傳。
+- **YFinance Agent** (`agents/yfinance_agent.py`)
+  - Single entry point for Yahoo Finance data: snapshot KPIs, intraday stats, price series, and Chinese company-name extraction. Provides deterministic empty payloads when yfinance is unavailable to keep dry-run reproducible.
 
 - Scoring (`agents/scoring.py`)
   - `combine_confidence` → 將 LLM confidence 與啟發式（含數字/百分比、來源可信度）合併為 1–5 分。
