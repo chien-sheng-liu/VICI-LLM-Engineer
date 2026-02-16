@@ -125,7 +125,7 @@ async def chat_completions(
     request_id = str(uuid.uuid4())
 
     # Inject request marker for mock provider deterministic behavior
-    msg_dicts = [m.dict() for m in req.messages]
+    msg_dicts = [m.model_dump() for m in req.messages]
     msg_dicts.append({"role": "system", "content": f"REQ:{request_id}"})
 
     # Optional API Key from client, prefer Authorization: Bearer <key>, fallback X-OPENAI-API-KEY
@@ -164,7 +164,7 @@ async def chat_completions(
         )
         raise HTTPException(
             status_code=status.HTTP_408_REQUEST_TIMEOUT,
-            detail=ErrorResponse(request_id=request_id, error="timeout").dict(),
+            detail=ErrorResponse(request_id=request_id, error="timeout").model_dump(),
         )
     except Exception as e:
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -179,7 +179,7 @@ async def chat_completions(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ErrorResponse(request_id=request_id, error=str(e)).dict(),
+            detail=ErrorResponse(request_id=request_id, error=str(e)).model_dump(),
         )
 
     latency_ms = int((time.perf_counter() - started) * 1000)

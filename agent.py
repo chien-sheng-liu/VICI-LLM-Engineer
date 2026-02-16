@@ -1638,7 +1638,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
     }
 
     report_lines = [
-        f"# 股票研究報告｜{args.ticker}",
+        f"# Research Report | {args.ticker}",
         "",
         f"來源：{nav_url}",
         "",

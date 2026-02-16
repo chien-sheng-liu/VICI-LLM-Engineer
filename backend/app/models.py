@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -23,7 +23,8 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 0.2
     max_tokens: Optional[int] = 256
 
-    @validator("temperature")
+    @field_validator("temperature")
+    @classmethod
     def _temp_range(cls, v: Optional[float]) -> Optional[float]:
         if v is None:
             return v
@@ -67,4 +68,3 @@ class ErrorResponse(BaseModel):
     request_id: str
     error: str
     detail: Optional[Dict[str, Any]] = None
-
