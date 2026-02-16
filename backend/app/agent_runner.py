@@ -20,10 +20,12 @@ from .logging_utils import log_event
 class RunRequest(BaseModel):
     ticker: str
     source: str
-    model: str = Field(default="mock-01")
+    model: str = Field(default="gpt-3.5-turbo")
     gateway: Optional[str] = Field(default=None)
-    dry_run: bool = Field(default=True)
+    dry_run: bool = Field(default=False)
 
+    # Yahoo TW automation mode
+    yahoo: bool = Field(default=False)
 
 class RunResponse(BaseModel):
     run_id: str
@@ -38,6 +40,7 @@ class RunStatusResponse(BaseModel):
     artifacts: Dict[str, Any] = {}
     report_md_text: Optional[str] = None
     screenshots: list[str] = []
+    sections: Optional[Dict[str, Any]] = None
 
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -60,6 +63,9 @@ def _load_agent_module() -> Any:
     module = importlib.util.module_from_spec(spec)
     # Ensure the module is registered so dataclasses and annotations resolve properly
     sys.modules[spec.name] = module  # type: ignore[arg-type]
+    # Make repo root importable so agent.py can import 'agents.*'
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
     spec.loader.exec_module(module)  # type: ignore[attr-defined]
     return module
 
@@ -104,6 +110,7 @@ async def start_run(req: RunRequest, request: Request, store: RunStore = Depends
         dry_run=req.dry_run,
         timeout_s=float(os.getenv("AGENT_TIMEOUT_S", "15")),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
+        yahoo=req.yahoo,
     )
 
     async def _runner():
@@ -139,18 +146,27 @@ async def get_status(run_id: str, store: RunStore = Depends(get_store)) -> RunSt
     report_text: Optional[str] = None
     screenshots: list[str] = []
 
+    sections_data: Optional[Dict[str, Any]] = None
+
     if run_json.exists():
         data = json.loads(run_json.read_text("utf-8"))
         artifacts = data.get("artifacts", {})
+        sections_data = data.get("report_sections")
         # Map to served URLs under /runs
         base = f"/runs/{run_id}"
         slides = artifacts.get("slides_pdf")
         report = artifacts.get("report_md")
         shot = artifacts.get("screenshot")
+        console = artifacts.get("console_log")
+        llm_calls = artifacts.get("llm_calls")
+        news_json = artifacts.get("news_json")
         artifacts = {
             "slides_url": f"{base}/outputs/slides.pdf" if slides else None,
             "report_url": f"{base}/outputs/report.md" if report else None,
             "checksums_url": f"{base}/outputs/checksums.txt",
+            "console_url": f"{base}/run_logs/{Path(console).name}" if console else None,
+            "llm_calls_url": f"{base}/run_logs/{Path(llm_calls).name}" if llm_calls else None,
+            "news_url": f"{base}/run_logs/{Path(news_json).name}" if news_json else None,
         }
         if report and Path(report).exists():
             try:
@@ -173,4 +189,5 @@ async def get_status(run_id: str, store: RunStore = Depends(get_store)) -> RunSt
         artifacts=artifacts,
         report_md_text=report_text,
         screenshots=screenshots,
+        sections=sections_data,
     )

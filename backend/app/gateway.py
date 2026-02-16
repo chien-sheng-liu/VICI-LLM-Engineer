@@ -135,6 +135,8 @@ async def chat_completions(
         api_key = auth.split(" ", 1)[1].strip()
     elif request.headers.get("X-OPENAI-API-KEY"):
         api_key = request.headers.get("X-OPENAI-API-KEY")
+    elif request.headers.get("X-ANTHROPIC-API-KEY"):
+        api_key = request.headers.get("X-ANTHROPIC-API-KEY")
     # Fallback to server-side .env if no key provided by client
     if not api_key:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -216,3 +218,27 @@ async def chat_completions(
         meta=meta,
     )
     return resp
+
+
+@router.get("/providers/status")
+async def providers_status(cfg: GatewayConfig = Depends(get_config)) -> Dict[str, Any]:
+    import shutil
+    claude_cli = os.getenv("GATEWAY_CLAUDE_CLI_PATH", "claude")
+    claude_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+    cli_path = shutil.which(claude_cli) if os.path.sep not in claude_cli else claude_cli
+    cli_exists = bool(cli_path) and (os.path.exists(cli_path))
+    ready = ("claude" in cfg.allowed_providers) and ("claude-3-haiku" in cfg.allowed_models) and bool(claude_key) and cli_exists
+    return {
+        "allowed_providers": sorted(list(cfg.allowed_providers)),
+        "allowed_models": sorted(list(cfg.allowed_models)),
+        "providers": {
+            "claude": {
+                "enabled": "claude" in cfg.allowed_providers,
+                "model_allowed": "claude-3-haiku" in cfg.allowed_models,
+                "cli_path": claude_cli,
+                "cli_exists": cli_exists,
+                "api_key_present": bool(claude_key),
+                "ready": ready,
+            }
+        },
+    }

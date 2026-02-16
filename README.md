@@ -12,20 +12,24 @@ This repository delivers a small, production‑minded system combining:
 Design emphasizes provider abstraction, structured JSON logs, strict safety boundaries, deterministic dry‑run, and verifiable artifacts. See `AGENTS.md` for the full spec.
 
 
-Repository Layout
------------------
+Repository Layout (Refined)
+---------------------------
 
 - `backend/app` — FastAPI application
   - `main.py` — app factory, CORS, static mount for runs, middleware
   - `gateway.py` — `/health` and `/v1/chat/completions` routes
-  - `agent_runner.py` — `/agent/run` and `/agent/status/{id}`
+  - `agent_runner.py` — `/agent/run` and `/agent/status/{id}` (loads root agent.py)
   - `providers/` — provider abstraction + mock/openai/claude providers
   - `models.py` — Pydantic models for request/response
   - `config.py` — env‑driven configuration and safety caps
   - `logging_utils.py` — JSON logging
   - `middleware.py` — concurrency limiter
 - `backend/tests` — pytest tests
-- `agent.py` — Agent CLI with dry‑run and artifact creation
+- `agents/` — Modular agent package (new)
+  - `news_agent.py` — per‑news micro summaries + event enrichment
+  - `finance_agent.py` — sentiment, trader insights, overview, watchlist
+  - `scoring.py` — confidence score combiner (LLM + heuristic)
+- `agent.py` — Orchestrator/CLI: wires agents + artifacts
 - `frontend` — React + TSX scaffold (Vite‑style)
 - `runs` — Per‑run artifacts (served by backend at `/runs`)
 
@@ -52,22 +56,18 @@ Prerequisites: Python 3.11+, pip; optional Node 18+ for frontend.
 
     make run-gateway
 
-5) Trigger an agent run (sample IR page)
-
-    Use the built-in sample page served by the backend:
+5) Trigger an agent run（官方 Yahoo 流程）
 
     - API flow (backend must be running):
       - Start backend as above, then:
         curl -X POST http://localhost:8000/agent/run \
           -H 'Content-Type: application/json' \
-          -d '{"ticker":"ACME","source":"http://localhost:8000/static/sample_ir.html","model":"gpt-3.5-turbo","dry_run":true}'
+          -d '{"ticker":"2330","source":"https://tw.stock.yahoo.com/","model":"gpt-3.5-turbo","dry_run":true,"yahoo":true}'
       - Poll status: curl http://localhost:8000/agent/status/<run_id>
-    - CLI flow (no backend required, uses embedded sample):
-        python agent.py --ticker ACME --source http://localhost:8000/static/sample_ir.html --gateway http://localhost:8000 --model gpt-3.5-turbo --dry-run
-    - One-command showcase options:
-        make showcase-local   # offline, uses embedded sample://ir
-        # or after starting backend (make run-gateway or make up):
-        make showcase         # uses backend runner + sample static page
+    - CLI flow:
+        python agent.py --ticker 2330 --source https://tw.stock.yahoo.com/ --gateway http://localhost:8000 --model gpt-3.5-turbo --yahoo
+    - One-command showcase:
+        make showcase   # 先啟動 backend，再執行此指令即可跑完整流程
 
 5) Docker (backend + frontend)
 
@@ -88,7 +88,7 @@ Gateway API
   - POST `/v1/chat/completions`
   - Body example:
 
-        {"model":"mock-01","messages":[{"role":"user","content":"Summarize: hello"}],"max_tokens":64,"temperature":0.2}
+        {"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"Summarize: hello"}],"max_tokens":64,"temperature":0.2}
 
   - Returns: `choices[0].message.content`, `usage`, internal `request_id`, provider, latency, retry_count
 
@@ -100,7 +100,7 @@ Agent Runner API
   - POST `/agent/run`
   - Body:
 
-        {"ticker":"AAPL","source":"https://example.com","model":"mock-01","dry_run":true}
+        {"ticker":"AAPL","source":"https://example.com","model":"gpt-3.5-turbo","dry_run":true}
 
   - Returns: `{ "run_id": "…", "status": "running" }`
 
@@ -115,10 +115,11 @@ Agent CLI
 
 Run the agent directly:
 
-    python agent.py --ticker AAPL --source https://example.com --gateway http://localhost:8000 --model mock-01 --dry-run
+    python agent.py --ticker 2330 --source https://tw.stock.yahoo.com/ --gateway http://localhost:8000 --model gpt-3.5-turbo --yahoo
 
 Artifacts per run:
 - `outputs/report.md` — includes Source URL, Evidence snippet, extracted table (if any), Event Extraction, Sentiment/Surprise, Summary, Timestamp
+  - 內容為繁體中文，聚焦最新股票研究重點
 - `outputs/slides.pdf` — structured sections (Events, Sentiment/Surprise, Risks note) for quick review
 - `outputs/checksums.txt` — sha256 hashes
 - `run_logs/run.json` — ticker, source, steps, timings, artifact paths, request_ids (per LLM call), latency summary
@@ -141,17 +142,9 @@ Docker Compose launches the frontend dev server on port 5173. Open http://localh
 
 Set Gateway URL in the left panel (default `http://localhost:8000`).
 - Model: `gpt-3.5-turbo` (OpenAI)
-- API key is read on the server from `.env` (OPENAI_API_KEY). No key is required in the browser.
-Click Run to trigger a backend run and view report/slides/screenshots.
-
-Sample Scenario
----------------
-
-- Source page: `http://localhost:8000/static/sample_ir.html` (ACME Corp Q2 IR update with a Time/Event/Guidance/Risk table)
-- Run via frontend or API; artifacts include:
-  - `outputs/report.md` — includes source link, evidence snippet, extracted table summary, LLM outputs (events, sentiment/surprise, summary)
-  - `outputs/slides.pdf` — compact deck with Events, Sentiment/Surprise, Risks
-  - `run_logs/` — `trace.zip`, `console.log`, `screenshots/1.png`, `llm_calls.jsonl` (each line has `category`, `request_id`, `latency_ms`, `usage`)
+- 系統會自動開啟 Yahoo 奇摩股市並搜尋輸入的台股代號。
+- API key 由後端 `.env` 提供，前端無需輸入。
+Click Run to trigger a backend run and view the structured report、screenshots、and logs.
 
 Troubleshooting
 ---------------
@@ -183,13 +176,47 @@ Observability & Safety
 - Safety boundaries: request size limit, per‑request timeout, concurrency limit, provider/model allowlists, retry limit ≤ 2
 
 
+Agents Architecture
+-------------------
+
+- Orchestrator (`agent.py`)
+  - Coordinates browse/extract, invokes sub‑agents, generates artifacts, writes run.json.
+  - Provides a unified `call_gw` wrapper used by all sub‑agents to call the gateway with consistent timeout/logs.
+
+- News Agent (`agents/news_agent.py`)
+  - `summarize_single_news` → 1–2 句摘要、情緒、分相（market_note）、事件類型、信心分數。
+  - `enrich_or_build_events` → 以每則新聞摘要建立/強化事件清單，去重與摘要去重。
+   - `collect_news` → 整合 Google News + Yahoo 個股新聞，寫入 run_logs/news.json。
+
+- Finance Agent (`agents/finance_agent.py`)
+  - `analyze_sentiment`、`overview_bullets`、`trader_insights`、`watchlist`。
+   - `analyze_financials` → 以新聞摘要 + KPI 產出量化/財務結論（thesis、drivers、risks、positioning、metrics_to_watch、timeframe、expected_move_pct、confidence）。
+
+- Scoring (`agents/scoring.py`)
+  - `combine_confidence` → 將 LLM confidence 與啟發式（含數字/百分比、來源可信度）合併為 1–5 分。
+
+Why is `agent.py` at repo root?
+- The backend runner dynamically loads root `agent.py` as the assignment requires a standalone CLI entry. Sub‑agents live in `agents/` to keep the orchestrator thin and maintainable.
+
+- UI Mapping
+-----------
+
+- Report（財務分析頁）
+  - 財務分析（量化視角）— 由 finance_agent.analyze_financials 產出之 thesis/驅動/風險/部位/觀測/期間與預期波動/信心。
+  - KPI 卡、結構化事件 / 指引 / 風險（由 news_agent 依每則新聞摘要建立/強化）、情緒與觀測清單。
+
+- News（新聞頁）
+  - 每則新聞以展開方式呈現：標題連結、1–2 句摘要、情緒/類型/情緒分數/信心。
+  - 來源清單與來源建議（MOPS/IR/交易所公告）。
+
+
 Makefile Targets
 ----------------
 
 - `make install` — install Python requirements
 - `make test` — run pytest
 - `make run-gateway` — start the FastAPI app
-- `make run-agent-demo` — run the agent in dry‑run mode
+- `make run-agent-demo` — run the Yahoo TW agent (台股代號 2330)
 - `make run-frontend` — guidance on launching frontend (local npm commands)
 - `make docker-up` / `make docker-down` — compose up/down
 

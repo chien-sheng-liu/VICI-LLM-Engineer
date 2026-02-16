@@ -12,10 +12,11 @@ import httpx
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Run showcase via backend Agent Runner")
     p.add_argument("--gateway", default="http://localhost:8000")
-    p.add_argument("--ticker", default="ACME")
-    p.add_argument("--source", default="http://localhost:8000/static/sample_ir.html")
-    p.add_argument("--model", default="mock-01")
+    p.add_argument("--ticker", default="2330")
+    p.add_argument("--source", default="https://tw.stock.yahoo.com/")
+    p.add_argument("--model", default="gpt-3.5-turbo")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--yahoo", action="store_true", default=True)
     args = p.parse_args(argv)
 
     base = args.gateway.rstrip("/")
@@ -28,6 +29,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "model": args.model,
         "dry_run": bool(args.dry_run),
         "gateway": base,
+        "yahoo": bool(args.yahoo),
     }
 
     with httpx.Client(timeout=30.0) as client:
@@ -58,4 +60,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

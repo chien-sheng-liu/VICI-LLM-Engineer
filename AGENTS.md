@@ -85,7 +85,8 @@ Artifacts + Logs
 
 ### 5.2 Workflow
 1. Launch browser (headless)
-2. Navigate to source URL
+2. Navigate to source URL, or Yahoo TW flow:
+   - Yahoo TW flow opens `https://tw.stock.yahoo.com/`, searches for the ticker, navigates to its quote page
 3. Extract main content
 4. Save screenshots
 5. Save trace.zip
@@ -103,6 +104,7 @@ Artifacts + Logs
 
 outputs/
 - report.md (must include Source URL, Extracted evidence snippet, LLM summary, Timestamp)
+  - In Yahoo mode, Source URL reflects the visited quote page
 - slides.pdf (research summary, highlights, risks section)
 - checksums.txt (sha256 of artifacts)
 
