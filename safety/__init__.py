@@ -140,11 +140,28 @@ class SafeguardrailsAdapter:
             if not ext_allowed and provider_meta:
                 findings.append({"label": "safeguardrails", "snippet": provider_meta.get("reason", "blocked")})
 
+        # Normalize reason labels to stable, generic categories for API consumers
+        # e.g. map provider-specific or pattern-specific labels like "openai_key"
+        # into the generic "api_key" category that tests assert against.
+        def _normalize_reasons(labels: List[str]) -> List[str]:
+            mapping = {
+                "openai_key": "api_key",
+            }
+            normalized = [mapping.get(lbl, lbl) for lbl in labels]
+            # Preserve order while de-duplicating
+            seen: set[str] = set()
+            out: List[str] = []
+            for lbl in normalized:
+                if lbl not in seen:
+                    seen.add(lbl)
+                    out.append(lbl)
+            return out
+
         decision = SafeguardDecision(
             stage=stage,
             allowed=allowed,
             sanitized_text=sanitized if (findings and self.config.redact) else text,
-            reasons=[f["label"] for f in findings],
+            reasons=_normalize_reasons([f["label"] for f in findings]),
             findings=findings,
             raw_text=text,
             provider_results=provider_meta,
