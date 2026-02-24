@@ -11,7 +11,7 @@ function sentimentScore(s?: string): number | '-' {
 
 export const NewsViewer: React.FC<{ sections: any | null; newsItems: NewsItem[] }>
   = ({ sections, newsItems }) => {
-  const micro = Array.isArray(sections?.news_micro) ? sections!.news_micro : []
+  const micro = Array.isArray(sections?.news_micro) ? sections.news_micro : []
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [activeKw, setActiveKw] = useState<string | null>(null)
   // News 視圖不顯示交易綜合分數，避免與 Report 重複
@@ -32,7 +32,7 @@ export const NewsViewer: React.FC<{ sections: any | null; newsItems: NewsItem[] 
     }
   }
 
-  if (!sections) return <div className="md">尚無資料</div>
+  // Defer empty-state rendering until after hooks to satisfy Rules of Hooks
 
   // Sentiment breakdown from micro summaries
   const sentCounts = micro.reduce((acc: any, m: any) => {

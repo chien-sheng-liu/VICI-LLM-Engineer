@@ -37,11 +37,20 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) setHistory(parsed)
       }
-    } catch {}
+    } catch (e) {
+      // Fallback silently if localStorage unavailable
+      // eslint-disable-next-line no-console
+      console.warn('Failed to read runHistory from localStorage', e)
+    }
   }, [])
 
   React.useEffect(() => {
-    try { localStorage.setItem('runHistory', JSON.stringify(history)) } catch {}
+    try {
+      localStorage.setItem('runHistory', JSON.stringify(history))
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to persist runHistory', e)
+    }
   }, [history])
 
   React.useEffect(() => {
@@ -57,7 +66,10 @@ export const App: React.FC = () => {
           const j = await r.json()
           if (Array.isArray(j)) setNewsItems(j)
         }
-      } catch {}
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load news items', e)
+      }
     }
     load()
   }, [newsUrl, sections])

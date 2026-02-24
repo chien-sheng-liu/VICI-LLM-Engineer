@@ -20,7 +20,10 @@ export const LogViewer: React.FC<{ logs: LogItem[]; consoleUrl?: string; llmCall
           const r = await fetch(consoleUrl)
           if (r.ok) setConsoleText(await r.text())
         }
-      } catch {}
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load console logs', e)
+      }
       try {
         if (llmCallsUrl) {
           const r = await fetch(llmCallsUrl)
@@ -30,7 +33,10 @@ export const LogViewer: React.FC<{ logs: LogItem[]; consoleUrl?: string; llmCall
             setCalls(lines.map((l) => { try { return JSON.parse(l) } catch { return { raw: l } } }))
           }
         }
-      } catch {}
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load LLM calls', e)
+      }
     }
     load()
   }, [consoleUrl, llmCallsUrl])

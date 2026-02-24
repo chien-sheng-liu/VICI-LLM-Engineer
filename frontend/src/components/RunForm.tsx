@@ -42,8 +42,9 @@ export const RunForm: React.FC<RunFormProps> = ({ running, onRun, onContextChang
           setClaudeReady(ready)
           if (!ready) setNotice('Claude 不可用，建議改用 OpenAI 或 Mock 模型')
         }
-      } catch {
-        // ignore
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load provider status', e)
       }
     }
     if (gateway) load()
@@ -134,7 +135,13 @@ export const RunForm: React.FC<RunFormProps> = ({ running, onRun, onContextChang
                 const v = e.target.value
                 if (v.startsWith('claude')) {
                   if (claudeReady === false) {
-                    try { window.alert('Claude 不可用，已改用 OpenAI 模型') } catch {}
+                    try {
+                      // eslint-disable-next-line no-alert
+                      window.alert('Claude 不可用，已改用 OpenAI 模型')
+                    } catch (e) {
+                      // eslint-disable-next-line no-console
+                      console.warn('Alert failed', e)
+                    }
                     setNotice('Claude 不可用，已改用 OpenAI 模型')
                     setModel('gpt-3.5-turbo')
                     return

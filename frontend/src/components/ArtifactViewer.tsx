@@ -10,7 +10,8 @@ type Props = {
 const toNumber = (value: any) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string') {
-    const cleaned = value.replace(/[^0-9+\-\.]/g, '')
+    // allow digits, plus, minus, and decimal dot
+    const cleaned = value.replace(/[^0-9+.-]/g, '')
     const parsed = Number(cleaned)
     if (Number.isFinite(parsed)) return parsed
   }
@@ -31,7 +32,11 @@ const formatMoney = (value: any, currency?: string) => {
   const num = toNumber(value)
   if (num === null) return typeof value === 'undefined' ? '—' : String(value)
   if (currency) {
-    try { return Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(num) } catch {}
+    try {
+      return Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(num)
+    } catch (_e) {
+      return formatNumber(num, 2)
+    }
   }
   return formatNumber(num, 2)
 }
