@@ -75,6 +75,7 @@ Artifacts + Logs
 - Model allowlist
 - Retry limit (max 2 retries)
 - Never allow unlimited retries or unbounded input
+- Safeguardrails guard layer (see `safety/`): prompt + response scanning, redaction, and optional JSON/YAML policies via `GATEWAY_SAFEGUARD_*` / `AGENT_SAFEGUARD_*` env vars with audit logs.
 
 ---
 
@@ -119,6 +120,7 @@ outputs/
   - In Yahoo mode, Source URL reflects the visited quote page.
 - slides.pdf (research summary, highlights, risks section)
 - checksums.txt (sha256 of artifacts)
+- run.json includes `safety_events` for every sanitized LLM call/artifact so the frontend enforces transparency.
 
 ---
 

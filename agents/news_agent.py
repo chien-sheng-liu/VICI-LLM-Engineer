@@ -25,6 +25,7 @@ class NewsAgent:
         dry_run: bool,
         company_name: Optional[str] = None,
     ) -> List[Dict[str, str]]:
+        """Return a normalized list of latest news items + persist news.json."""
         return _collect_news(ticker, base_url, logs_dir, dry_run, company_name)
 
     def summarize_item(
@@ -46,6 +47,7 @@ class NewsAgent:
         micro_items: List[Dict[str, Any]],
         snapshot_kpis: Optional[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        """Fuse news micro summaries into structured events timeline."""
         return _enrich_or_build_events(events, micro_items, snapshot_kpis)
 
 
@@ -137,6 +139,7 @@ def _enrich_or_build_events(
     micro_items: List[Dict[str, Any]],
     snapshot_kpis: Dict[str, Any] | None,
 ) -> List[Dict[str, Any]]:
+    """Merge existing events with refined LLM micro summaries."""
     out: List[Dict[str, Any]] = []
     snapshot_kpis = snapshot_kpis or {}
 
@@ -190,6 +193,7 @@ def _enrich_or_build_events(
 
 
 def _dedup_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove duplicate titles so the frontend tabs stay concise."""
     def _norm_t(s: str) -> str:
         import re
         return re.sub(r"\s+", "", re.sub(r"[^\w\u4e00-\u9fa5]", "", (s or "").lower()))
@@ -208,6 +212,7 @@ def _dedup_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 # News collection (moved from orchestrator for modularity)
 def _collect_news(ticker: str, base_url: Optional[str], logs_dir, dry_run: bool, company_name: Optional[str] = None) -> List[Dict[str, str]]:
+    """Primary Yahoo+Google fetcher with deterministic dry-run fallback."""
     import json
     from pathlib import Path
     news_path = Path(logs_dir) / "news.json"
@@ -281,6 +286,7 @@ def _collect_news(ticker: str, base_url: Optional[str], logs_dir, dry_run: bool,
 
 
 def _collect_news_google(query: str, logs_dir, lang: str = "zh-TW") -> List[Dict[str, str]]:
+    """Scrape Google News result page when Yahoo pages do not load."""
     try:
         from urllib.parse import unquote, urlparse, quote_plus
         import httpx
@@ -346,6 +352,7 @@ __all__ = ["NewsAgent"]
 
 
 def _relative_time_to_iso(window: str) -> Optional[str]:
+    """Translate e.g. '2小時前' text into ISO timestamp."""
     import re
     from datetime import timedelta, datetime, timezone
     m = re.search(r'(\d+)\s*(小時|小時前|天|天前|週|週前)', window)
@@ -366,6 +373,7 @@ def _relative_time_to_iso(window: str) -> Optional[str]:
 
 
 def _classify_source(host: str) -> str:
+    """Group outlets into domestic/international/broker buckets."""
     host_l = host.lower()
     domestic = [
         'yahoo.com.tw', 'tw.stock.yahoo.com', 'cnyes.com', 'moneydj.com', 'udn.com', 'money.udn.com',
@@ -383,5 +391,6 @@ def _classify_source(host: str) -> str:
 
 
 def _now_iso() -> str:
+    """Helper for stamping news items."""
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

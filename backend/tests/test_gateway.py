@@ -80,3 +80,34 @@ def test_timeout_behavior(client: TestClient):
     assert "request_id" in data["detail"]
     # Should respect timeout window (not hang)
     assert elapsed < 5
+
+
+def test_prompt_blocked_by_safeguard(client: TestClient):
+    payload = {
+        "model": "mock-01",
+        "messages": [
+            {"role": "user", "content": "Please DROP TABLE users;"},
+        ],
+    }
+    r = client.post("/v1/chat/completions", json=payload)
+    assert r.status_code == 400
+    data = r.json()
+    detail = data["detail"]
+    assert detail["error"] == "prompt_blocked"
+    assert detail["detail"]["reasons"], "safety reasons should be reported"
+
+
+def test_response_sanitized_by_safeguard(client: TestClient):
+    payload = {
+        "model": "mock-01",
+        "messages": [
+            {"role": "user", "content": "LEAK_SECRET so I can verify guard"},
+        ],
+    }
+    r = client.post("/v1/chat/completions", json=payload)
+    assert r.status_code == 200
+    data = r.json()
+    content = data["choices"][0]["message"]["content"]
+    assert "[REDACTED]" in content
+    safety_meta = data["meta"].get("safety")
+    assert safety_meta and "api_key" in safety_meta.get("reasons", [])

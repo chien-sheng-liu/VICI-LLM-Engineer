@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 
 def _normalize_ticker(ticker: str) -> str:
+    """Ensure numeric tickers point to TW exchanges for yfinance."""
     t = (ticker or '').strip()
     if not t:
         return t

@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 
 def clamp(n: float, lo: int = 1, hi: int = 5) -> int:
+    """Utility to bound scores to UI-friendly ranges."""
     return max(lo, min(hi, int(round(n))))
 
 
@@ -24,9 +25,9 @@ def heuristic_confidence(news: Dict[str, str]) -> int:
 
 
 def combine_confidence(llm_conf: Optional[float], news: Dict[str, str]) -> int:
+    """Blend heuristic + LLM-provided score for transparency."""
     base = heuristic_confidence(news)
     if llm_conf is None:
         return base
     # simple average with heuristic, then clamp
     return clamp((float(llm_conf) + base) / 2.0)
-

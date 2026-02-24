@@ -25,7 +25,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # Allow running in minimal environments
+    def load_dotenv(*_args, **_kwargs):  # type: ignore
+        return False
 
 load_dotenv()
 
@@ -53,9 +57,25 @@ except Exception:
     def combine_confidence(llm_conf: Optional[float], news: Dict[str, str]) -> int:  # fallback
         return int(llm_conf or 3)
 
+try:
+    from safety import SafeguardConfig, SafeguardrailsAdapter
+except ModuleNotFoundError:
+    repo_root = Path(__file__).resolve().parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    try:
+        from safety import SafeguardConfig, SafeguardrailsAdapter
+    except Exception:
+        SafeguardConfig = None  # type: ignore
+        SafeguardrailsAdapter = None  # type: ignore
+except Exception:
+    SafeguardConfig = None  # type: ignore
+    SafeguardrailsAdapter = None  # type: ignore
+
 
 @dataclass
 class AgentArgs:
+    """Structured inputs needed to drive a playthrough."""
     ticker: str
     source: str
     gateway: Optional[str]
@@ -68,10 +88,12 @@ class AgentArgs:
 
 
 def _now_iso() -> str:
+    """Return a timezone-aware ISO timestamp for logging artifacts."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _ensure_dirs(base: Path) -> Dict[str, Path]:
+    """Create the outputs/run_logs folders required by the assignment."""
     outputs = base / "outputs"
     logs = base / "run_logs"
     shots = logs / "screenshots"
@@ -81,6 +103,7 @@ def _ensure_dirs(base: Path) -> Dict[str, Path]:
 
 
 def _load_sample_html() -> str:
+    """Load sample IR HTML bundled in backend/static for deterministic tests."""
     # Load the built-in sample IR HTML from backend/static/sample_ir.html
     here = Path(__file__).resolve().parent
     sample = here / "backend" / "static" / "sample_ir.html"
@@ -91,10 +114,12 @@ def _load_sample_html() -> str:
 
 
 def _has_chinese(text: Optional[str]) -> bool:
+    """Check whether a string contains CJK characters for localization prefs."""
     return bool(text and CHINESE_RE.search(text))
 
 
 def _prefer_company_name(current: Optional[str], candidate: Optional[str]) -> Optional[str]:
+    """Pick the better company name preferring Chinese strings when available."""
     curr = (current or '').strip()
     cand = (candidate or '').strip()
     if not curr and not cand:
@@ -109,6 +134,7 @@ def _prefer_company_name(current: Optional[str], candidate: Optional[str]) -> Op
 
 
 def _write_minimal_pdf(path: Path, title: str, body: str, sections: Optional[List[tuple[str, str]]] = None) -> None:
+    """Emit a single-page PDF without external deps, used for slides artifact."""
     # Minimal single-page PDF with basic text using plain bytes
     # This is not fancy, but valid enough for artifact purposes
     # naive text placements, special chars stripped
@@ -155,6 +181,7 @@ def _write_minimal_pdf(path: Path, title: str, body: str, sections: Optional[Lis
 
 
 def _write_1x1_png(path: Path) -> None:
+    """Persist a deterministic transparent PNG for dry-runs/screenshots."""
     # A minimal valid 1x1 transparent PNG
     data = bytes.fromhex(
         "89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000A49444154789C6360000002000154A6F2660000000049454E44AE426082"
@@ -163,6 +190,7 @@ def _write_1x1_png(path: Path) -> None:
 
 
 def _sha256(p: Path) -> str:
+    """Compute sha256 chunks so artifact checksums are reproducible."""
     h = hashlib.sha256()
     with p.open("rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
@@ -171,6 +199,7 @@ def _sha256(p: Path) -> str:
 
 
 def _extract_evidence(content_html: Optional[str]) -> str:
+    """Strip noisy HTML down to a short snippet for LLM context."""
     if not content_html:
         return ""
     import re
@@ -201,6 +230,7 @@ def _extract_evidence(content_html: Optional[str]) -> str:
 
 
 def _extract_table(content_html: Optional[str]) -> List[Dict[str, str]]:
+    """Grab up to a handful of rows from the first table on the page."""
     if not content_html:
         return []
     # naive table extraction: look for <table> and first few rows
@@ -242,6 +272,7 @@ def _extract_table(content_html: Optional[str]) -> List[Dict[str, str]]:
 
 
 def _extract_meta_snippet(content_html: Optional[str]) -> Optional[str]:
+    """Look for og:description/description meta tags as a quick summary."""
     if not content_html:
         return None
     import re
@@ -255,6 +286,7 @@ def _extract_meta_snippet(content_html: Optional[str]) -> Optional[str]:
 
 
 def _classify_source(host: str) -> str:
+    """Categorize host for news sentiment dashboards."""
     host_l = host.lower()
     domestic = [
         'yahoo.com.tw', 'tw.stock.yahoo.com', 'cnyes.com', 'moneydj.com', 'udn.com', 'money.udn.com',
@@ -272,6 +304,7 @@ def _classify_source(host: str) -> str:
 
 
 def _relative_time_to_iso(label: str) -> Optional[str]:
+    """Turn Chinese relative time strings (x小時/天/週) into ISO timestamps."""
     import re
     from datetime import timedelta
     m = re.search(r'(\d+)\s*(小時|小時前|天|天前|週|週前)', label)
@@ -292,6 +325,7 @@ def _relative_time_to_iso(label: str) -> Optional[str]:
     return (datetime.now(timezone.utc) - delta).isoformat()
 
 def _polish_llm_text(text: Optional[str], fallback: str) -> str:
+    """Drop obviously bad/simulated answers and fall back to deterministic text."""
     if not text:
         return fallback
     cleaned = text.strip()
@@ -305,6 +339,7 @@ def _polish_llm_text(text: Optional[str], fallback: str) -> str:
 
 
 def _parse_json_from_text(text: Optional[str]) -> Optional[Any]:
+    """Best-effort JSON extraction from fenced or noisy model responses."""
     if not text:
         return None
     s = text.strip()
@@ -324,6 +359,7 @@ def _parse_json_from_text(text: Optional[str]) -> Optional[Any]:
 
 
 def _extract_chinese_company_name(html_text: Optional[str], ticker: str) -> Optional[str]:
+    """Try to pull localized company names from Yahoo quote HTML."""
     if not html_text:
         return None
     try:
@@ -372,6 +408,7 @@ def _extract_chinese_company_name(html_text: Optional[str], ticker: str) -> Opti
 
 
 def _extract_yahoo_snapshot(html_text: Optional[str], ticker: str) -> Dict[str, Any]:
+    """Parse Yahoo quote HTML for KPIs, tables, and localized metadata."""
     if not html_text:
         return {}
     try:
@@ -532,6 +569,7 @@ def _extract_yahoo_snapshot(html_text: Optional[str], ticker: str) -> Dict[str, 
 
 
 def _collect_news_google(query: str, logs_dir: Path, lang: str = "zh-TW") -> List[Dict[str, str]]:
+    """Scrape Google News HTML (no API) for backup headlines."""
     from urllib.parse import unquote, urlparse, quote_plus
     try:
         url = f"https://www.google.com/search?tbm=nws&hl={lang}&q={quote_plus(query)}"
@@ -590,6 +628,7 @@ def _collect_news_google(query: str, logs_dir: Path, lang: str = "zh-TW") -> Lis
 
 
 def _collect_news(ticker: str, base_url: Optional[str], logs_dir: Path, dry_run: bool, company_name: Optional[str] = None) -> List[Dict[str, str]]:
+    """Primary news fetcher combining Yahoo pages + Google fallback."""
     news_path = logs_dir / "news.json"
     if dry_run:
         items = [
@@ -658,6 +697,7 @@ def _collect_news(ticker: str, base_url: Optional[str], logs_dir: Path, dry_run:
 
 
 def _fetch_and_capture(source: str, shots_dir: Path, logs_dir: Path, dry_run: bool) -> Dict[str, Any]:
+    """Generic Playwright navigation helper for arbitrary URLs."""
     started = time.perf_counter()
     # Special scheme for embedded sample
     if source.startswith("sample://"):
@@ -768,6 +808,7 @@ def _fetch_and_capture(source: str, shots_dir: Path, logs_dir: Path, dry_run: bo
 
 
 def _fetch_yahoo_tw(ticker: str, shots_dir: Path, logs_dir: Path, dry_run: bool) -> Dict[str, Any]:
+    """Dedicated Yahoo TW workflow covering headless + deterministic fallback."""
     started = time.perf_counter()
     base = "https://tw.stock.yahoo.com"
     target_url = f"{base}/"
@@ -919,9 +960,38 @@ def _fetch_yahoo_tw(ticker: str, shots_dir: Path, logs_dir: Path, dry_run: bool)
         }
 
 
-def _call_gateway(
-    gateway: Optional[str], messages: List[Dict[str, str]], model: str, timeout_s: float, dry_run: bool, category: str, llm_log_path: Optional[Path], api_key: Optional[str]
+def _apply_safety_guard(
+    resp: Dict[str, Any], category: str, safety_adapter: Optional["SafeguardrailsAdapter"], stage: str
 ) -> Dict[str, Any]:
+    """Re-scan agent LLM outputs so run.json records every sanitization."""
+    if not safety_adapter:
+        return resp
+    text = resp.get("text")
+    if not isinstance(text, str):
+        return resp
+    decision = safety_adapter.inspect_text(text, stage=stage, actor=category)
+    if not decision.allowed:
+        if safety_adapter.config.fail_open:
+            resp["text"] = decision.sanitized_text
+        else:
+            raise RuntimeError(f"safety_blocked:{category}:{decision.reasons}")
+    if decision.reasons or decision.provider_results:
+        resp = {**resp, "safety": decision.to_meta()}
+    return resp
+
+
+def _call_gateway(
+    gateway: Optional[str],
+    messages: List[Dict[str, str]],
+    model: str,
+    timeout_s: float,
+    dry_run: bool,
+    category: str,
+    llm_log_path: Optional[Path],
+    api_key: Optional[str],
+    safety_adapter: Optional["SafeguardrailsAdapter"] = None,
+) -> Dict[str, Any]:
+    """Wrapper around FastAPI gateway with optional dry-run + logging."""
     if dry_run or not gateway:
         rid = f"dry-run-{category}-{uuid.uuid4().hex[:8]}"
         resp = {
@@ -936,7 +1006,7 @@ def _call_gateway(
         if llm_log_path:
             with llm_log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"category": category, **resp}) + "\n")
-        return resp
+        return _apply_safety_guard(resp, category, safety_adapter, stage=f"agent_{category}")
     url = gateway.rstrip("/") + "/v1/chat/completions"
     payload = {"model": model, "messages": messages, "max_tokens": 256, "temperature": 0.2}
     started = time.perf_counter()
@@ -960,18 +1030,31 @@ def _call_gateway(
         if llm_log_path:
             with llm_log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"category": category, **resp}) + "\n")
-        return resp
+        return _apply_safety_guard(resp, category, safety_adapter, stage=f"agent_{category}")
 
 
 def run(args: AgentArgs) -> Dict[str, Any]:
+    """Main orchestration pipeline invoked by CLI and FastAPI runner."""
     dirs = _ensure_dirs(args.out_dir)
     outputs, logs, shots = dirs["outputs"], dirs["logs"], dirs["shots"]
 
     steps: List[Dict[str, Any]] = []
     t0 = time.perf_counter()
 
+    agent_safety: Optional[SafeguardrailsAdapter] = None
+    if SafeguardrailsAdapter and SafeguardConfig:
+        try:
+            agent_safety = SafeguardrailsAdapter(SafeguardConfig.from_env("AGENT_SAFEGUARD"))
+        except Exception:
+            agent_safety = None
+
+    safety_events: List[Dict[str, Any]] = []
+
     def call_gw(_gw, msgs, model, to, dr, category, llm_log_path=None, api_key=None):
-        return _call_gateway(args.gateway, msgs, model, to, dr, category, llm_log_path, api_key)
+        resp = _call_gateway(args.gateway, msgs, model, to, dr, category, llm_log_path, api_key, safety_adapter=agent_safety)
+        if isinstance(resp, dict) and resp.get("safety"):
+            safety_events.append({"category": category, "decision": resp["safety"]})
+        return resp
 
     news_client = NewsAgent(call_gw) if NewsAgent else None
     finance_client = FinanceAgent(call_gw) if FinanceAgent else None
@@ -1142,6 +1225,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             category="events",
             llm_log_path=llm_log_path,
             api_key=args.openai_api_key,
+            safety_adapter=agent_safety,
         )
     except Exception:
         llm_events = {"request_id": f"fallback-events-{uuid.uuid4().hex[:8]}", "text": "{}", "latency_ms": 0, "retry_count": 0}
@@ -1167,6 +1251,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
                 category="sentiment",
                 llm_log_path=llm_log_path,
                 api_key=args.openai_api_key,
+                safety_adapter=agent_safety,
             )
     except Exception:
         llm_sent = {"request_id": f"fallback-sent-{uuid.uuid4().hex[:8]}", "text": "中性；近期消息影響待觀察", "latency_ms": 0, "retry_count": 0}
@@ -1192,6 +1277,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             category="bullets",
             llm_log_path=llm_log_path,
             api_key=args.openai_api_key,
+            safety_adapter=agent_safety,
         )
     # bullets 如要包try/except，可在 finance_client 中包；這裡保持直通
     # 3c-1. Trader insights (explicit)
@@ -1213,6 +1299,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             category="trader",
             llm_log_path=llm_log_path,
             api_key=args.openai_api_key,
+            safety_adapter=agent_safety,
         )
     # 3d. Watchlist suggestions
     s2c = time.perf_counter()
@@ -1233,6 +1320,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             category="watch",
             llm_log_path=llm_log_path,
             api_key=args.openai_api_key,
+            safety_adapter=agent_safety,
         )
     steps.append({"name": "llm_watch", "latency_ms": int((time.perf_counter() - s2c) * 1000), "request_id": llm_watch["request_id"]})
     steps.append({"name": "llm_bullets", "latency_ms": int((time.perf_counter() - s2b) * 1000), "request_id": llm_bullets["request_id"]})
@@ -1260,6 +1348,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
             category="news_reports",
             llm_log_path=llm_log_path,
             api_key=args.openai_api_key,
+            safety_adapter=agent_safety,
         )
     except Exception:
         llm_news = {"request_id": f"fallback-news-{uuid.uuid4().hex[:8]}", "text": "{\"summary\":\"近期新聞聚焦公司與產業供需\",\"insights\":[\"觀察需求與價格動能\"]}", "latency_ms": 0, "retry_count": 0}
@@ -1486,6 +1575,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
                 category="sentiment_trader",
                 llm_log_path=llm_log_path,
                 api_key=args.openai_api_key,
+                safety_adapter=agent_safety,
             )
             steps.append({"name":"llm_sentiment_trader","latency_ms": int((time.perf_counter()-s2s)*1000), "request_id": sent2.get("request_id")})
             # Override sentiment with integrated one (fallback if empty)
@@ -1574,6 +1664,7 @@ def run(args: AgentArgs) -> Dict[str, Any]:
                 category="fin_analysis",
                 llm_log_path=llm_log_path,
                 api_key=args.openai_api_key,
+                safety_adapter=agent_safety,
             )
         fin_parsed = _parse_json_from_text(fin_resp.get("text"))
         if isinstance(fin_parsed, dict):
@@ -1689,7 +1780,17 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         f"- 生成時間：{_now_iso()}",
     ]
     report_md = outputs / "report.md"
-    report_md.write_text("\n".join(report_lines), encoding="utf-8")
+    report_content = "\n".join(report_lines)
+    if agent_safety:
+        report_guard = agent_safety.inspect_text(report_content, stage="artifact_report", actor="report_md")
+        if not report_guard.allowed:
+            if agent_safety.config.fail_open:
+                report_content = report_guard.sanitized_text
+            else:
+                raise RuntimeError(f"report_blocked:{report_guard.reasons}")
+        if report_guard.reasons or report_guard.provider_results:
+            safety_events.append({"category": "report_md", "decision": report_guard.to_meta()})
+    report_md.write_text(report_content, encoding="utf-8")
     slides_pdf = outputs / "slides.pdf"
     _write_minimal_pdf(
         slides_pdf,
@@ -1779,12 +1880,14 @@ def run(args: AgentArgs) -> Dict[str, Any]:
         },
         "timestamp": _now_iso(),
         "report_sections": report_sections,
+        "safety_events": safety_events,
     }
     (logs / "run.json").write_text(json.dumps(run_json, indent=2), encoding="utf-8")
     return run_json
 
 
 def parse_args(argv: Optional[List[str]] = None) -> AgentArgs:
+    """Parse CLI arguments and normalize into AgentArgs dataclass."""
     p = argparse.ArgumentParser(description="Playwright research agent")
     p.add_argument("--ticker", required=True)
     p.add_argument("--source", required=True)
@@ -1810,6 +1913,7 @@ def parse_args(argv: Optional[List[str]] = None) -> AgentArgs:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry point that runs the agent then prints a JSON status."""
     args = parse_args(argv)
     run(args)
     print(json.dumps({"status": "ok", "out_dir": str(args.out_dir)}))

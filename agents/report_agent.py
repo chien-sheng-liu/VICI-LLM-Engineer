@@ -29,6 +29,7 @@ class ReportAgent:
         dry_run: bool,
         api_key: Optional[str],
     ) -> Dict[str, Any]:
+        """Call gateway with a structured prompt for final Markdown report."""
         kpi_lines: List[str] = []
         for key, label in [
             ("price", "Price"),

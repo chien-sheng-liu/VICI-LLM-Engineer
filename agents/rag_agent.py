@@ -18,6 +18,7 @@ class RAGAgent:
                 self.documents = []
 
     def retrieve(self, query: str, top_k: int = 2) -> List[Dict[str, Any]]:
+        """Return best-matching notes using simple token overlap scoring."""
         if not self.documents:
             return []
         q = query.lower()

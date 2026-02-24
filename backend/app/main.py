@@ -4,13 +4,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - minimal env fallback
+    def load_dotenv(*_args, **_kwargs):  # type: ignore
+        return False
 
 from .config import GatewayConfig
 from .gateway import router as gateway_router
 from .logging_utils import configure_json_logging
 from .middleware import ConcurrencyLimitMiddleware
 from .agent_runner import router as agent_router, RunStore
+
+try:
+    from safety import SafeguardConfig, SafeguardrailsAdapter
+except ModuleNotFoundError:  # pragma: no cover - fallback when running from backend/ dir
+    import sys
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from safety import SafeguardConfig, SafeguardrailsAdapter
 
 
 def create_app() -> FastAPI:
@@ -21,6 +34,7 @@ def create_app() -> FastAPI:
     cfg = GatewayConfig.from_env()
     app = FastAPI(title="VICI LLM Gateway", version=cfg.version)
 
+    # Protect the gateway from overload.
     app.add_middleware(ConcurrencyLimitMiddleware, max_concurrency=cfg.max_concurrency)
 
     app.add_middleware(
@@ -31,8 +45,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Routers stay decoupled so gateway + agent lifecycle remain independent.
     app.include_router(gateway_router)
     app.include_router(agent_router)
+
+    # Shared safety adapter (used by gateway + agent runner when invoking the agent orchestrator)
+    safety_cfg = SafeguardConfig.from_env("GATEWAY_SAFEGUARD")
+    app.state.safety_adapter = SafeguardrailsAdapter(safety_cfg)  # type: ignore[attr-defined]
 
     # Run storage and static mount
     runs_dir = Path("runs").resolve()

@@ -29,6 +29,7 @@ Repository Layout (Refined)
   - `news_agent.py` — per‑news micro summaries + event enrichment
   - `finance_agent.py` — sentiment, trader insights, overview, watchlist
   - `scoring.py` — confidence score combiner (LLM + heuristic)
+- `safety/` — shared Safeguardrails adapter + heuristics for gateway + agent artifacts
 - `agent.py` — Orchestrator/CLI: wires agents + artifacts
 - `frontend` — React + TSX scaffold (Vite‑style)
 - `runs` — Per‑run artifacts (served by backend at `/runs`)
@@ -89,6 +90,15 @@ Gateway API
 
   - Returns: `choices[0].message.content`, `usage`, internal `request_id`, provider, latency, retry_count
 
+Safeguardrails Guard Layer
+--------------------------
+
+- `safety/` holds a `SafeguardrailsAdapter` with built-in PII/secret regexes, optional JSON/YAML policies, and optional passthrough to the `safeguardrails` PyPI package when it is available.
+- `/v1/chat/completions` now runs prompt checks before hitting providers and response checks afterwards; leaked tokens are replaced with `[REDACTED]` when `GATEWAY_SAFEGUARD_FAIL_OPEN=1`, and violations return HTTP 400/500 when set to fail-closed.
+- Configure behavior via env vars (see `.env.example`): `GATEWAY_SAFEGUARD_*` controls the FastAPI layer while `AGENT_SAFEGUARD_*` protects CLI artifacts. Audits can be written to JSONL via `*_AUDIT_PATH`.
+- The mock provider exposes a `LEAK_SECRET` trigger so tests exercise both retries and the guard pipeline.
+- Agent runs append `safety_events` to `run_logs/run.json` so the frontend and reviewers can trace which prompts or artifacts were sanitized.
+
 
 Agent Runner API
 ----------------
@@ -119,7 +129,7 @@ Artifacts per run:
   - 內容為繁體中文，聚焦最新股票研究重點
 - `outputs/slides.pdf` — structured sections (Events, Sentiment/Surprise, Risks note) for quick review
 - `outputs/checksums.txt` — sha256 hashes
-- `run_logs/run.json` — ticker, source, steps, timings, artifact paths, request_ids (per LLM call), latency summary
+- `run_logs/run.json` — ticker, source, steps, timings, artifact paths, request_ids (per LLM call), latency summary, plus `safety_events` (one per sanitized LLM call or artifact) and optional JSONL audit files when `*_SAFEGUARD_AUDIT_PATH` env vars are supplied.
 - `run_logs/trace.zip` — Playwright trace (or fallback)
 - `run_logs/screenshots/…` — screenshots
 - `run_logs/console.log` — console logs captured during browsing

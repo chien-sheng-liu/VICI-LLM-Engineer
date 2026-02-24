@@ -13,6 +13,7 @@ CHINESE_RE = re.compile(r'[\u4e00-\u9fff]')
 
 
 def _symbol_candidates(ticker: str) -> List[str]:
+    """Expand bare ticker to possible Yahoo suffix combos."""
     base = (ticker or '').strip()
     if not base:
         return []
@@ -26,6 +27,7 @@ def _symbol_candidates(ticker: str) -> List[str]:
 
 
 def _clean_company_name(name: Optional[str], ticker: str) -> str:
+    """Strip repeated ticker strings + generic words from company names."""
     if not name:
         return ''
     cleaned = name.strip()
@@ -45,6 +47,7 @@ def _clean_company_name(name: Optional[str], ticker: str) -> str:
 
 
 def _extract_chinese_from_html(html: str, ticker: str) -> Optional[str]:
+    """Search Yahoo HTML for localized names to display in UI."""
     from html import unescape
     patterns = [
         r'<h1[^>]*>(.*?)</h1>',
@@ -70,6 +73,7 @@ def _extract_chinese_from_html(html: str, ticker: str) -> Optional[str]:
 
 
 def _fetch_yahoo_company_name(symbol: str, ticker: str) -> Optional[str]:
+    """Fetch Yahoo quote page to find a Chinese alias when APIs lack it."""
     try:
         import httpx
     except Exception:
@@ -100,6 +104,7 @@ def _fetch_yahoo_company_name(symbol: str, ticker: str) -> Optional[str]:
 
 
 def _choose_company_name(candidates: List[Optional[str]], ticker: str) -> Optional[str]:
+    """Pick the best name, preferring Chinese text then Yahoo fallback."""
     normalized: List[str] = []
     for raw in candidates:
         cleaned = _clean_company_name(raw, ticker)
@@ -116,6 +121,7 @@ def _choose_company_name(candidates: List[Optional[str]], ticker: str) -> Option
 
 
 def _safe_info(ticker_obj: Any) -> Dict[str, Any]:
+    """Defensively unwrap yfinance info dictionaries."""
     for attr in ("info", "get_info"):
         getter = getattr(ticker_obj, attr, None)
         if getter:
@@ -129,6 +135,7 @@ def _safe_info(ticker_obj: Any) -> Dict[str, Any]:
 
 
 def _build_kpis(fast: Dict[str, Any], info: Dict[str, Any]) -> Dict[str, Any]:
+    """Assemble the KPI dictionary used elsewhere in the agent."""
     kpis: Dict[str, Any] = {}
     currency = fast.get('currency') or info.get('currency')
     price = fast.get('last_price') or fast.get('lastClose') or fast.get('last_close') or info.get('regularMarketPrice')
@@ -176,6 +183,7 @@ def _build_kpis(fast: Dict[str, Any], info: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_analysis(kpis: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive narrative-ready drivers/risks from raw KPIs."""
     drivers: List[str] = []
     risks: List[str] = []
     positioning: List[str] = []
@@ -228,6 +236,7 @@ def _build_analysis(kpis: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _normalize_ticker(ticker: str) -> str:
+    """Ensure we always request TW suffix when user passes digits only."""
     t = (ticker or '').strip()
     if not t:
         return t
@@ -237,6 +246,7 @@ def _normalize_ticker(ticker: str) -> str:
 
 
 def _fetch_snapshot(ticker: str) -> Dict[str, Any]:
+    """Try multiple symbol variants to return KPIs + localized company name."""
     if not ticker or yf is None:  # pragma: no cover - network dependency
         return {}
     for symbol in _symbol_candidates(ticker):
@@ -268,6 +278,7 @@ def _fetch_snapshot(ticker: str) -> Dict[str, Any]:
 
 
 def _fetch_intraday_prices(ticker: str) -> Dict[str, Dict[str, Any]]:
+    """Simplified snapshot of current price/volume fields."""
     if yf is None:
         return {}
     try:
@@ -291,6 +302,7 @@ def _fetch_intraday_prices(ticker: str) -> Dict[str, Dict[str, Any]]:
 
 
 def _fetch_price_series(ticker: str, period: str = "1mo", interval: str = "1d") -> Dict[str, Dict[str, Any]]:
+    """Download price history for trader indicators with lightweight cleanup."""
     if yf is None:
         return {}
     try:
@@ -334,12 +346,15 @@ class YFinanceAgent:
     """Yahoo Finance data helper (prices, KPIs, Chinese names)."""
 
     def fetch_snapshot(self, ticker: str) -> Dict[str, Any]:
+        """Return KPIs + analysis summary if yfinance succeeds."""
         return _fetch_snapshot(ticker)
 
     def fetch_intraday_kpis(self, ticker: str) -> Dict[str, Dict[str, Any]]:
+        """Expose intraday-only helper for orchestrator."""
         return _fetch_intraday_prices(ticker)
 
     def fetch_price_series(self, ticker: str, period: str = "1mo", interval: str = "1d") -> Dict[str, Dict[str, Any]]:
+        """Expose yfinance history fetch for trader agent consumption."""
         return _fetch_price_series(ticker, period, interval)
 
 

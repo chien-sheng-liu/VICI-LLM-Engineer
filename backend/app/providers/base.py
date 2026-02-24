@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 
 class Provider(ABC):
+    """Every provider exposes the same async generate signature."""
     name: str
 
     @abstractmethod

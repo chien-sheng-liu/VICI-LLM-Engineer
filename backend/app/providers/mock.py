@@ -21,7 +21,7 @@ class MockProvider(Provider):
         if "TIMEOUT" in prompt:
             raise asyncio.TimeoutError("mock timeout trigger")
 
-        # Simulate a transient error once per request id token embedded in prompt
+        # Simulate a transient error once per request id token embedded in prompt.
         # Token format: REQ:<uuid>
         req_marker = None
         for m in messages:
@@ -34,10 +34,14 @@ class MockProvider(Provider):
                 _seen_fail_once.add(key)
                 raise RuntimeError("simulated transient error")
 
-        content = (
-            "[MOCK] Echo summary: "
-            + (prompt[: max_tokens] if max_tokens else prompt)  # naive truncation
-        )
+        if "LEAK_SECRET" in prompt:
+            content = "Leaked credential: sk-live-leaked-key-1234567890123"
+        else:
+            content = (
+                "[MOCK] Echo summary: "
+                + (prompt[: max_tokens] if max_tokens else prompt)  # naive truncation
+            )
+        # Token counts are deterministic so tests can assert usage objects.
         usage = {
             "prompt_tokens": max(1, len(prompt) // 4),
             "completion_tokens": max(1, len(content) // 4),

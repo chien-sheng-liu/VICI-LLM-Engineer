@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 
 def configure_json_logging() -> None:
+    """Install a root handler that emits structured JSON lines."""
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     handler = logging.StreamHandler(sys.stdout)
@@ -33,4 +34,5 @@ class _JsonFormatter(logging.Formatter):
 
 
 def log_event(**fields: Any) -> None:
+    """Shortcut for emitting gateway-scoped structured logs."""
     logging.getLogger("gateway").info("event", fields)

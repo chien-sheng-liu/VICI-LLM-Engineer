@@ -17,6 +17,7 @@ from .logging_utils import log_event
 
 
 class RunRequest(BaseModel):
+    """Payload accepted by /agent/run to kick off browser workflow."""
     ticker: str
     source: str
     model: str = Field(default="gpt-3.5-turbo")
@@ -27,11 +28,13 @@ class RunRequest(BaseModel):
     yahoo: bool = Field(default=False)
 
 class RunResponse(BaseModel):
+    """Acknowledgement returned immediately after scheduling."""
     run_id: str
     status: str
 
 
 class RunStatusResponse(BaseModel):
+    """Summarizes everything the frontend needs to render run progress."""
     run_id: str
     status: str
     started_at: Optional[str] = None
@@ -46,6 +49,7 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 
 def _now_iso() -> str:
+    """UTC timestamp helper used for run bookkeeping."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -70,6 +74,7 @@ def _load_agent_module() -> Any:
 
 
 class RunStore:
+    """Tracks run directories and asyncio tasks for agent executions."""
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
         self.tasks: dict[str, asyncio.Task] = {}
@@ -113,6 +118,7 @@ async def start_run(req: RunRequest, request: Request, store: RunStore = Depends
     )
 
     async def _runner():
+        """Background task that invokes agent.py in a thread pool."""
         store.started[run_id] = _now_iso()
         log_event(event="agent_run_start", run_id=run_id, ticker=req.ticker, source=req.source, model=req.model)
         try:
@@ -148,6 +154,7 @@ async def get_status(run_id: str, store: RunStore = Depends(get_store)) -> RunSt
     sections_data: Optional[Dict[str, Any]] = None
 
     if run_json.exists():
+        # Parse run.json to surface artifacts + structured sections.
         data = json.loads(run_json.read_text("utf-8"))
         artifacts = data.get("artifacts", {})
         sections_data = data.get("report_sections")

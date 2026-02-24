@@ -24,16 +24,38 @@ from .providers.base import Provider
 from .providers.claude_cli import ClaudeProvider
 from .providers.mock import MockProvider
 from .providers.openai import OpenAIProvider
+try:
+    from safety import SafeguardConfig, SafeguardrailsAdapter
+except ModuleNotFoundError:  # pragma: no cover - allow running from backend/
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from safety import SafeguardConfig, SafeguardrailsAdapter
 
 
 router = APIRouter()
 
 
 def get_config() -> GatewayConfig:
+    """Expose config via FastAPI dependency injection."""
     return GatewayConfig.from_env()
 
 
+def get_safety_adapter(request: Request) -> SafeguardrailsAdapter:
+    """One shared safeguard adapter per process to amortize policy loading."""
+    adapter = getattr(request.app.state, "safety_adapter", None)
+    if adapter is None:
+        cfg = SafeguardConfig.from_env("GATEWAY_SAFEGUARD")
+        adapter = SafeguardrailsAdapter(cfg)
+        request.app.state.safety_adapter = adapter  # type: ignore[attr-defined]
+    return adapter
+
+
 def get_provider(name: str) -> Provider:
+    """Factory that returns a provider implementation by name."""
     mapping = {
         "mock": MockProvider(),
         "openai": OpenAIProvider(),
@@ -62,6 +84,7 @@ async def _run_with_retries(
     max_retries: int,
     api_key: str | None,
 ) -> Tuple[str, Dict[str, int], Dict[str, Any], int]:
+    """Run provider.generate with bounded retries + timeout."""
     attempt = 0
     last_err: Exception | None = None
     while attempt <= max_retries:
@@ -96,6 +119,7 @@ async def chat_completions(
     req: ChatCompletionRequest,
     request: Request,
     cfg: GatewayConfig = Depends(get_config),
+    safety: SafeguardrailsAdapter = Depends(get_safety_adapter),
 ) -> ChatCompletionResponse:
     # Safety: model allowlist
     if req.model not in cfg.allowed_models:
@@ -124,11 +148,28 @@ async def chat_completions(
     started = time.perf_counter()
     request_id = str(uuid.uuid4())
 
-    # Inject request marker for mock provider deterministic behavior
+    # Run prompt safety check before touching providers
     msg_dicts = [m.model_dump() for m in req.messages]
+    prompt_guard = safety.inspect_messages(msg_dicts, actor="gateway")
+    if not prompt_guard.allowed:
+        log_event(
+            request_id=request_id,
+            route="/v1/chat/completions",
+            provider=provider_name,
+            model=req.model,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            retry_count=0,
+            error="prompt_blocked",
+            safety=prompt_guard.to_meta(),
+        )
+        err = ErrorResponse(request_id=request_id, error="prompt_blocked", detail={"reasons": prompt_guard.reasons})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err.model_dump())
+
+    # Inject request marker for mock provider deterministic behavior
     msg_dicts.append({"role": "system", "content": f"REQ:{request_id}"})
 
     # Optional API Key from client, prefer Authorization: Bearer <key>, fallback X-OPENAI-API-KEY
+    # Capture downstream API key without logging secrets.
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
     api_key: str | None = None
     if auth and auth.lower().startswith("bearer "):
@@ -183,6 +224,31 @@ async def chat_completions(
         )
 
     latency_ms = int((time.perf_counter() - started) * 1000)
+    # Response is scanned again so artifacts inherit the audit metadata.
+    response_guard = safety.inspect_text(text, stage="response", actor="gateway")
+    safety_meta: Dict[str, Any] | None = None
+    if not response_guard.allowed:
+        safety_meta = response_guard.to_meta()
+        if safety.config.fail_open:
+            text = response_guard.sanitized_text
+            meta = {**meta, "safety": safety_meta}
+        else:
+            log_event(
+                request_id=request_id,
+                route="/v1/chat/completions",
+                provider=provider_name,
+                model=req.model,
+                latency_ms=latency_ms,
+                retry_count=retries,
+                error="response_blocked",
+                safety=safety_meta,
+            )
+            err = ErrorResponse(request_id=request_id, error="response_blocked", detail={"reasons": response_guard.reasons})
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=err.model_dump())
+    elif response_guard.provider_results:
+        safety_meta = response_guard.to_meta()
+        meta = {**meta, "safety": safety_meta}
+
     log_event(
         request_id=request_id,
         route="/v1/chat/completions",
@@ -192,6 +258,7 @@ async def chat_completions(
         retry_count=retries,
         error=None,
         api_key_present=bool(api_key),
+        safety=safety_meta,
     )
 
     created = int(time.time())
@@ -222,6 +289,7 @@ async def chat_completions(
 
 @router.get("/providers/status")
 async def providers_status(cfg: GatewayConfig = Depends(get_config)) -> Dict[str, Any]:
+    """Lightweight readiness probe for optional providers (currently Claude)."""
     import shutil
     claude_cli = os.getenv("GATEWAY_CLAUDE_CLI_PATH", "claude")
     claude_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")

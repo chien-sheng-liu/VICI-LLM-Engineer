@@ -6,17 +6,20 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
+    """Simple heartbeat payload served by /health."""
     status: str
     version: str
     timestamp: str
 
 
 class ChatMessage(BaseModel):
+    """Minimal OpenAI-style chat message."""
     role: str
     content: str
 
 
 class ChatCompletionRequest(BaseModel):
+    """Subset of the OpenAI create request we support."""
     model: str
     messages: List[ChatMessage]
     temperature: Optional[float] = 0.2
@@ -38,6 +41,7 @@ class ChoiceMessage(BaseModel):
 
 
 class Choice(BaseModel):
+    """Single response choice."""
     index: int
     message: ChoiceMessage
     finish_reason: str = "stop"
@@ -50,6 +54,7 @@ class Usage(BaseModel):
 
 
 class ChatCompletionResponse(BaseModel):
+    """Wrapper that mirrors OpenAI plus extra observability fields."""
     id: str
     object: str = "chat.completion"
     created: int
@@ -64,6 +69,7 @@ class ChatCompletionResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
+    """Uniform error payload so frontend can show request ids."""
     request_id: str
     error: str
     detail: Optional[Dict[str, Any]] = None

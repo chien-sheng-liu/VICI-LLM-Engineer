@@ -7,6 +7,7 @@ from typing import Set
 
 @dataclass(frozen=True)
 class GatewayConfig:
+    """Container for every runtime limit the gateway enforces."""
     version: str
     request_timeout_s: float
     max_retries: int
@@ -17,6 +18,7 @@ class GatewayConfig:
 
     @staticmethod
     def from_env() -> "GatewayConfig":
+        """Load config from env vars while applying assignment safety caps."""
         version = os.getenv("GATEWAY_VERSION", "0.1.0")
         request_timeout_s = float(os.getenv("GATEWAY_REQUEST_TIMEOUT_S", "15"))
         max_retries = int(os.getenv("GATEWAY_MAX_RETRIES", "2"))

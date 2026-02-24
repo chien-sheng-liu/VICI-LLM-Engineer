@@ -11,8 +11,8 @@ class OpenAIProvider(Provider):
     async def generate(
         self, messages: List[Dict[str, str]], temperature: float, max_tokens: int, api_key: Optional[str] = None
     ) -> Tuple[str, Dict[str, int], Dict[str, Any]]:
-        # Network access is restricted in this environment.
-        # Implement a placeholder that mimics behavior.
+        # Network access is restricted in this environment, so we emit a predictable string
+        # that still respects token counting expectations.
         joined = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
         text = f"[OPENAI SIM] {joined[:max_tokens]}"
         usage = {

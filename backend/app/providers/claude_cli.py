@@ -32,7 +32,7 @@ class ClaudeProvider(Provider):
         used_cli = False
         exit_code: Optional[int] = None
 
-        # Common CLI styles vary; attempt a couple of patterns:
+        # Common CLI styles vary; attempt a couple of patterns to cover the known CLIs:
         # 1) claude -m <model> -t <temp> -M <max_tokens>
         # 2) claude -m <model>
         for args in [

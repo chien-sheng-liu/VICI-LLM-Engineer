@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 
 def _ema(values: List[float], span: int) -> List[float]:
+    """Simple exponential moving average implementation."""
     if not values or span <= 1:
         return values[:]
     k = 2.0 / (span + 1)
@@ -17,6 +18,7 @@ def _ema(values: List[float], span: int) -> List[float]:
 
 
 def _rsi(values: List[float], period: int = 14) -> Optional[float]:
+    """Classic RSI calculation used for momentum commentary."""
     if not values or len(values) < period + 1:
         return None
     gains: List[float] = []
@@ -37,6 +39,7 @@ def _rsi(values: List[float], period: int = 14) -> Optional[float]:
 
 
 def compute_signals(price_series: List[float], kpis: Dict[str, Any], high_series: List[float] | None = None, low_series: List[float] | None = None) -> Dict[str, Any]:
+    """Derive trader-friendly metrics + insights from OHLC series."""
     signals: Dict[str, Any] = {}
     insights: List[str] = []
     if not price_series or len(price_series) < 5:

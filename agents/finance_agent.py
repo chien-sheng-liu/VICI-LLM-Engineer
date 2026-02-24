@@ -13,6 +13,7 @@ class FinanceAgent:
         self._call_gateway = call_gateway
 
     def generate_sentiment(self, messages, model, timeout_s, dry_run, api_key):
+        """Ask the gateway for a concise sentiment + surprise label."""
         return self._call_gateway(
             None,
             messages + [{"role": "user", "content": "判斷市場情緒（正向/中性/負向）與驚喜程度（超預期/符合/低於），簡短繁體中文回答。"}],
@@ -25,6 +26,7 @@ class FinanceAgent:
         )
 
     def trader_insights(self, messages, model, timeout_s, dry_run, api_key):
+        """Request trader-style bullet points (no explicit trade calls)."""
         return self._call_gateway(
             None,
             messages + [{"role": "user", "content": (
@@ -40,6 +42,7 @@ class FinanceAgent:
         )
 
     def overview_bullets(self, messages, model, timeout_s, dry_run, api_key):
+        """Generate a research summary that merges events + risks."""
         return self._call_gateway(
             None,
             messages + [{"role": "user", "content": "請撰寫一份最新的股票研究摘要（繁體中文），包含：1) 可交易但不涉及執行指令的重點要點、2) 事件時間線、3) 核心結論與需要留意的風險。"}],
@@ -52,6 +55,7 @@ class FinanceAgent:
         )
 
     def watchlist(self, messages, model, timeout_s, dry_run, api_key):
+        """LLM instruction to produce structured metrics_to_watch JSON."""
         return self._call_gateway(
             None,
             messages + [{"role": "user", "content": (
@@ -67,6 +71,7 @@ class FinanceAgent:
         )
 
     def analyze_financials(self, news_micro: List[Dict[str, Any]], kpis: Dict[str, Any], messages, model, timeout_s, dry_run, api_key):
+        """Blend KPIs + news bullets into a JSON thesis for the report."""
         bullets = []
         for m in news_micro[:10]:
             t = str(m.get('title') or '')[:120]
@@ -97,6 +102,7 @@ class FinanceAgent:
         )
 
     def analyze_kpi_impact(self, micro: Dict[str, Any], kpis: Dict[str, Any], messages, model, timeout_s, dry_run, api_key):
+        """Per-news KPI direction inference used for watch items/events."""
         t = str(micro.get('title') or '')[:160]
         s = str(micro.get('summary') or '')[:220]
         base = []
