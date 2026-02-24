@@ -87,7 +87,8 @@ class SafeguardrailsAdapter:
 
     DEFAULT_SECRET_PATTERNS: Dict[str, str] = {
         "api_key": r"sk-[a-z0-9]{20,}",
-        "openai_key": r"sk-(live|test)-[a-z0-9]{20,}",
+        # Allow hyphenated leak strings like "sk-live-leaked-key-..." so tests catch redactions.
+        "openai_key": r"sk-(live|test)-[a-z0-9-]{16,}",
         "aws_access_key": r"AKIA[0-9A-Z]{16}",
         "rsa_private_key": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
         "ssh_private_key": r"-----BEGIN OPENSSH PRIVATE KEY-----",
