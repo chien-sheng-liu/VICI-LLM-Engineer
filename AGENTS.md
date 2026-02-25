@@ -1,6 +1,11 @@
 # VICI Tech Assignment — LLM Gateway + Browser Automation Agent
 This document is the authoritative spec for this repository. It defines architecture, coding standards, safety boundaries, testing rules, and execution constraints. Follow this strictly.
 
+Scope & Precedence
+- Applies to the entire repository unless a more deeply nested `AGENTS.md` overrides a part of it.
+- Direct user instructions can override specific items when explicitly requested.
+- Keep code modular; do not add features beyond scope.
+
 ---
 
 ## 0. Mission
@@ -155,6 +160,7 @@ outputs/
 - /v1/chat/completions schema valid
 - Retry logic works
 - Timeout behavior works
+ - Notes: mock provider supports input triggers for tests (e.g., `FAIL_ONCE`, `TIMEOUT`, `LEAK_SECRET`).
 
 ### Agent
 - Dry-run mode
