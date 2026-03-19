@@ -1,4 +1,4 @@
-VICI LLM Gateway + Browser Automation Agent
+LLM Gateway + Browser Automation Agent
 ==========================================
 
 Overview
